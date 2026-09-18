@@ -6785,6 +6785,39 @@
             overflow-y: auto;
         }
 
+        /* 二进制数据强转文本的警告框（浅黄警示，紧凑风格） */
+        .binary-warn {
+            background: #fff3cd;
+            border: 1px solid #ffc107;
+            color: #856404;
+            font-size: 12px;
+            line-height: 1.6;
+            padding: 8px 12px;
+            border-radius: 6px;
+            margin-bottom: 8px;
+            word-break: break-all;
+        }
+
+        /* 文件工具的拖拽选择区（虚线边框，紧凑风格，与整体配色一致） */
+        .file-drop-zone {
+            border: 2px dashed #adb5bd;
+            border-radius: 8px;
+            padding: 18px 12px;
+            text-align: center;
+            color: #6c757d;
+            font-size: 13px;
+            cursor: pointer;
+            background: white;
+            transition: all 0.3s;
+        }
+
+        /* 拖拽悬停时高亮为主题色，提示可释放文件 */
+        .file-drop-zone.dragover {
+            border-color: #667eea;
+            color: #667eea;
+            background: rgba(102, 126, 234, 0.05);
+        }
+
         .encoding-selector {
             display: flex;
             gap: 8px;
@@ -7027,6 +7060,7 @@
                     <div class="tabs">
                         <button class="tab active" onclick="switchTab('hex-base64')">Hex ↔ Base64</button>
                         <button class="tab" onclick="switchTab('string-encoding')">字符串编码转换</button>
+                        <button class="tab" onclick="switchTab('url-unicode')">URL / Unicode / 随机</button>
                     </div>
 
                     <div id="hex-base64" class="tab-content active">
@@ -7067,9 +7101,70 @@
                         <div class="input-group">
                             <label>转换结果</label>
                             <div class="result-container">
+                                <!-- 二进制数据转字符串的警告（默认隐藏，检测到 U+FFFD 替换符时由 JS 显示） -->
+                                <div id="binary-warn" class="binary-warn" style="display:none;"></div>
                                 <div class="result-area" id="string-result"></div>
                                 <button class="copy-btn" onclick="copyToClipboard('string-result')">复制</button>
                                 <button class="btn btn-secondary" onclick="saveStringResultToFile()">保存到文件</button>
+                                <button class="btn btn-secondary" onclick="saveDecodedBytesToFile()">保存原始字节(.bin)</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div id="url-unicode" class="tab-content">
+                        <!-- URL 编码：处理查询参数值或完整 URL 的编码/解码 -->
+                        <div class="input-group">
+                            <label>URL 编码 - 输入内容</label>
+                            <textarea id="url-input" placeholder="输入要进行 URL 编码/解码的内容..."></textarea>
+                        </div>
+                        <div class="encoding-selector">
+                            <!-- 两种模式保留字符不同：参数模式会编码 ?&#= 等分隔符，适合单个参数值；整URL模式保留 URL 结构字符 -->
+                            <label><input type="radio" name="url-mode" value="component" checked><span>encodeURIComponent（参数模式）</span></label>
+                            <label><input type="radio" name="url-mode" value="uri"><span>encodeURI（整URL模式）</span></label>
+                        </div>
+                        <div class="button-group">
+                            <button class="btn btn-primary" onclick="urlEncode()">URL 编码</button>
+                            <button class="btn btn-primary" onclick="urlDecode()">URL 解码</button>
+                        </div>
+                        <div class="input-group">
+                            <label>转换结果</label>
+                            <div class="result-container">
+                                <div class="result-area" id="url-result"></div>
+                                <button class="copy-btn" onclick="copyToClipboard('url-result')">复制</button>
+                            </div>
+                        </div>
+
+                        <!-- Unicode 转义：字符串与 \uXXXX 转义序列互转（配置文件/源码中常见写法） -->
+                        <div class="input-group">
+                            <label>Unicode 转义 - 输入内容</label>
+                            <textarea id="unicode-input" placeholder="输入字符串或 \uXXXX 转义序列..."></textarea>
+                        </div>
+                        <div class="button-group">
+                            <button class="btn btn-primary" onclick="stringToUnicode()">字符串 → \uXXXX</button>
+                            <button class="btn btn-primary" onclick="unicodeToString()">\uXXXX → 字符串</button>
+                        </div>
+                        <div class="input-group">
+                            <label>转换结果</label>
+                            <div class="result-container">
+                                <div class="result-area" id="unicode-result"></div>
+                                <button class="copy-btn" onclick="copyToClipboard('unicode-result')">复制</button>
+                            </div>
+                        </div>
+
+                        <!-- 随机字节生成：生成密钥/盐/IV 等密码学随机数据 -->
+                        <div class="input-group">
+                            <label>字节长度</label>
+                            <input type="number" id="random-length" value="32" min="1" max="1048576" style="width:100%;max-width:220px;padding:10px;border:2px solid #e9ecef;border-radius:6px;font-size:14px;box-sizing:border-box;">
+                        </div>
+                        <div class="button-group">
+                            <button class="btn btn-primary" onclick="generateRandomBytes()">生成随机字节</button>
+                            <button class="btn btn-secondary" onclick="clearUrlUnicodeArea()">清空</button>
+                        </div>
+                        <div class="input-group">
+                            <label>转换结果</label>
+                            <div class="result-container">
+                                <div class="result-area" id="random-result"></div>
+                                <button class="copy-btn" onclick="copyToClipboard('random-result')">复制</button>
                             </div>
                         </div>
                     </div>
@@ -7172,6 +7267,107 @@
                     </div>
                 </div>
             </div>
+
+            <!-- 文件工具区域 -->
+            <div class="section">
+                <h2>📁 文件工具</h2>
+
+                <div class="input-group">
+                    <label>选择文件</label>
+                    <!-- 拖拽/点击二合一的文件选择区：隐藏的 input 实际负责弹出文件选择框 -->
+                    <div id="file-drop-zone" class="file-drop-zone">
+                        拖拽文件到此处，或点击选择文件
+                        <input type="file" id="file-input" style="display:none;">
+                    </div>
+                    <!-- 已选文件信息（名称/大小/类型），由 JS 填充 -->
+                    <div id="file-info" style="font-size:12px;color:#495057;background:#f8f9fa;border:1px solid #e9ecef;border-radius:6px;padding:8px 12px;word-break:break-all;line-height:1.6;"></div>
+                </div>
+                <div class="button-group">
+                    <button class="btn btn-primary" onclick="calculateFileHashes()">计算文件哈希</button>
+                    <button class="btn btn-secondary" onclick="convertFileToBase64()">文件 → Base64</button>
+                    <button class="btn btn-secondary" onclick="convertFileToHex()">文件 → Hex</button>
+                    <button class="btn btn-secondary" onclick="clearFileArea()">清空</button>
+                </div>
+                <div class="hash-results">
+                    <div class="hash-item">
+                        <h4>MD5</h4>
+                        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-start;">
+                            <div class="result-container" style="flex:1;min-width:200px;position:relative;">
+                                <div class="hash-value" id="file-md5-hex">-</div>
+                                <button class="copy-btn" onclick="copySpecific('file-md5','hex')">复制</button>
+                            </div>
+                            <div class="result-container" style="flex:1;min-width:200px;position:relative;">
+                                <div class="hash-value" id="file-md5-base64">-</div>
+                                <button class="copy-btn" onclick="copySpecific('file-md5','base64')">复制</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="hash-item">
+                        <h4>SHA-1</h4>
+                        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-start;">
+                            <div class="result-container" style="flex:1;min-width:200px;position:relative;">
+                                <div class="hash-value" id="file-sha1-hex">-</div>
+                                <button class="copy-btn" onclick="copySpecific('file-sha1','hex')">复制</button>
+                            </div>
+                            <div class="result-container" style="flex:1;min-width:200px;position:relative;">
+                                <div class="hash-value" id="file-sha1-base64">-</div>
+                                <button class="copy-btn" onclick="copySpecific('file-sha1','base64')">复制</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="hash-item">
+                        <h4>SHA-256</h4>
+                        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-start;">
+                            <div class="result-container" style="flex:1;min-width:200px;position:relative;">
+                                <div class="hash-value" id="file-sha256-hex">-</div>
+                                <button class="copy-btn" onclick="copySpecific('file-sha256','hex')">复制</button>
+                            </div>
+                            <div class="result-container" style="flex:1;min-width:200px;position:relative;">
+                                <div class="hash-value" id="file-sha256-base64">-</div>
+                                <button class="copy-btn" onclick="copySpecific('file-sha256','base64')">复制</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="hash-item">
+                        <h4>SHA-512</h4>
+                        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-start;">
+                            <div class="result-container" style="flex:1;min-width:200px;position:relative;">
+                                <div class="hash-value" id="file-sha512-hex">-</div>
+                                <button class="copy-btn" onclick="copySpecific('file-sha512','hex')">复制</button>
+                            </div>
+                            <div class="result-container" style="flex:1;min-width:200px;position:relative;">
+                                <div class="hash-value" id="file-sha512-base64">-</div>
+                                <button class="copy-btn" onclick="copySpecific('file-sha512','base64')">复制</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="hash-item">
+                        <h4>SM3</h4>
+                        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-start;">
+                            <div class="result-container" style="flex:1;min-width:200px;position:relative;">
+                                <div class="hash-value" id="file-sm3-hex">-</div>
+                                <button class="copy-btn" onclick="copySpecific('file-sm3','hex')">复制</button>
+                            </div>
+                            <div class="result-container" style="flex:1;min-width:200px;position:relative;">
+                                <div class="hash-value" id="file-sm3-base64">-</div>
+                                <button class="copy-btn" onclick="copySpecific('file-sm3','base64')">复制</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="input-group">
+                    <label>转换结果</label>
+                    <div class="result-container">
+                        <div class="result-area" id="file-convert-result"></div>
+                        <button class="copy-btn" onclick="copyToClipboard('file-convert-result')">复制</button>
+                        <button class="btn btn-secondary" onclick="downloadFileConvertResult()">下载完整结果</button>
+                    </div>
+                </div>
+            </div>
         </div>
     </div>
 
@@ -7186,6 +7382,33 @@
             setTimeout(() => {
                 notification.classList.remove('show');
             }, 2000);
+        }
+
+        // 字节数组 → 二进制字符串（每字节对应一个字符码，供 btoa 使用）
+        // 分块拼接：大数组直接展开为 fromCharCode 的参数会超过函数参数数量上限，
+        // 触发 "Maximum call stack size exceeded"，每块 0x8000 字节可安全规避
+        function bytesToBinaryString(bytes) {
+            const CHUNK_SIZE = 0x8000;
+            let result = '';
+            for (let i = 0; i < bytes.length; i += CHUNK_SIZE) {
+                const chunk = bytes.subarray ? bytes.subarray(i, i + CHUNK_SIZE) : bytes.slice(i, i + CHUNK_SIZE);
+                result += String.fromCharCode.apply(null, chunk);
+            }
+            return result;
+        }
+
+        // 兼容 Base64URL 的安全 atob：
+        // Base64URL 变体（JWT、密钥交换等密码学场景常见）使用 '-'/'_' 替代 '+'/'/' 且省略 '=' 填充，
+        // 直接 atob 会抛异常，此处先做字符替换、去空白并按需补齐填充
+        function safeAtob(input) {
+            let str = input.replace(/-/g, '+').replace(/_/g, '/').replace(/\s/g, '');
+            const pad = str.length % 4;
+            if (pad === 2) {
+                str += '==';
+            } else if (pad === 3) {
+                str += '=';
+            }
+            return atob(str);
         }
 
         function copyToClipboard(elementId) {
@@ -7277,7 +7500,7 @@
                 }
                 const paddedHex = cleanHex.length % 2 === 0 ? cleanHex : '0' + cleanHex;
                 const bytes = new Uint8Array(paddedHex.match(/.{1,2}/g).map(byte => parseInt(byte, 16)));
-                const binary = String.fromCharCode(...bytes);
+                const binary = bytesToBinaryString(bytes);
                 const base64 = btoa(binary);
                 document.getElementById('hex-result').textContent = base64;
             } catch (error) {
@@ -7292,8 +7515,8 @@
                 return;
             }
             try {
-                const binary = atob(input);
-                const hex = Array.from(binary).map(char => 
+                const binary = safeAtob(input);
+                const hex = Array.from(binary).map(char =>
                     char.charCodeAt(0).toString(16).padStart(2, '0')
                 ).join('');
                 document.getElementById('hex-result').textContent = hex.toUpperCase();
@@ -7311,7 +7534,7 @@
             
             if (/^[A-Za-z0-9+/]*={0,2}$/.test(input)) {
                 try {
-                    atob(input);
+                    safeAtob(input);
                     base64ToHex();
                     return;
                 } catch (e) {
@@ -7337,13 +7560,37 @@
             return encoding;
         }
 
+        // 最近一次 Hex/Base64 → 字符串 解码得到的原始字节缓存
+        // 业务原因：二进制数据（密钥/密文等）强转文本会产生 U+FFFD，字节不可逆丢失，
+        // "保存原始字节(.bin)"按钮依赖此缓存将未损坏的原始字节无损写回文件
+        let lastDecodedBytes = null;   // 解码得到的原始字节（Uint8Array）
+        let lastDecodedSource = null;  // 来源标识：'hex' 或 'base64'
+
+        // 显示/隐藏二进制警告（badCount 为结果中 U+FFFD 替换符的数量，大于 0 时显示）
+        function updateBinaryWarn(badCount) {
+            const warnDiv = document.getElementById('binary-warn');
+            if (!warnDiv) return;
+            if (badCount > 0) {
+                warnDiv.textContent = '⚠️ 检测到 ' + badCount + ' 个无法解码的字节（显示为 �）：该数据很可能是二进制（密钥/密文/证书等），不是文本。转字符串和"保存到文件"都会损坏数据，请改用"保存原始字节(.bin)"或 Hex/Base64 格式。';
+                warnDiv.style.display = 'block';
+            } else {
+                warnDiv.textContent = '';
+                warnDiv.style.display = 'none';
+            }
+        }
+
         function stringToHex() {
             const input = document.getElementById('string-input').value;
             if (!input) {
                 document.getElementById('string-result').textContent = '请输入字符串';
+                updateBinaryWarn(0);
                 return;
             }
             try {
+                // 正向编码不产生"解码字节"语义，清空缓存并隐藏警告，防止旧状态残留被误存
+                lastDecodedBytes = null;
+                lastDecodedSource = null;
+                updateBinaryWarn(0);
                 const encoding = getSelectedEncoding();
                 let bytes;
                 if (encoding === 'utf8') {
@@ -7355,6 +7602,9 @@
                 const hex = Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('');
                 document.getElementById('string-result').textContent = hex.toUpperCase();
             } catch (error) {
+                lastDecodedBytes = null;
+                lastDecodedSource = null;
+                updateBinaryWarn(0);
                 document.getElementById('string-result').textContent = '转换失败: ' + error.message;
             }
         }
@@ -7363,20 +7613,29 @@
             const input = document.getElementById('string-input').value;
             if (!input) {
                 document.getElementById('string-result').textContent = '请输入字符串';
+                updateBinaryWarn(0);
                 return;
             }
             try {
+                // 正向编码不产生"解码字节"语义，清空缓存并隐藏警告，防止旧状态残留被误存
+                lastDecodedBytes = null;
+                lastDecodedSource = null;
+                updateBinaryWarn(0);
                 const encoding = getSelectedEncoding();
                 let binary;
                 if (encoding === 'utf8') {
-                    binary = unescape(encodeURIComponent(input));
+                    // unescape 是已废弃 API，改用 TextEncoder + 分块拼接
+                    binary = bytesToBinaryString(new TextEncoder().encode(input));
                 } else {
                     const bytes = utf8ToGbkBytes(input);
-                    binary = String.fromCharCode(...bytes);
+                    binary = bytesToBinaryString(bytes);
                 }
                 const base64 = btoa(binary);
                 document.getElementById('string-result').textContent = base64;
             } catch (error) {
+                lastDecodedBytes = null;
+                lastDecodedSource = null;
+                updateBinaryWarn(0);
                 document.getElementById('string-result').textContent = '转换失败: ' + error.message;
             }
         }
@@ -7385,6 +7644,7 @@
             const input = document.getElementById('string-input').value.trim();
             if (!input) {
                 document.getElementById('string-result').textContent = '请输入Hex内容';
+                updateBinaryWarn(0);
                 return;
             }
             try {
@@ -7395,16 +7655,28 @@
                 }
                 const paddedHex = cleanHex.length % 2 === 0 ? cleanHex : '0' + cleanHex;
                 const bytes = new Uint8Array(paddedHex.match(/.{1,2}/g).map(byte => parseInt(byte, 16)));
-                
+
                 let result;
                 if (encoding === 'utf8') {
                     const decoder = new TextDecoder();
                     result = decoder.decode(bytes);
+                    // 出现 U+FFFD 替换符说明原始字节不是合法 UTF-8 文本，二进制数据强转文本会不可逆丢失字节，需提示用户
+                    const badCount = (result.match(/�/g) || []).length;
+                    updateBinaryWarn(badCount);
                 } else {
                     result = gbkBytesToUtf8(bytes);
+                    // GBK 解码不产生 U+FFFD，无法据此判断是否二进制，仅确保警告不残留
+                    updateBinaryWarn(0);
                 }
+                // 缓存解码前的原始字节，供"保存原始字节(.bin)"无损保存
+                lastDecodedBytes = bytes;
+                lastDecodedSource = 'hex';
                 document.getElementById('string-result').textContent = result;
             } catch (error) {
+                // 转换失败时清空缓存，避免保存到与当前结果不符的旧字节
+                lastDecodedBytes = null;
+                lastDecodedSource = null;
+                updateBinaryWarn(0);
                 document.getElementById('string-result').textContent = '转换失败: ' + error.message;
             }
         }
@@ -7413,22 +7685,35 @@
             const input = document.getElementById('string-input').value.trim();
             if (!input) {
                 document.getElementById('string-result').textContent = '请输入Base64内容';
+                updateBinaryWarn(0);
                 return;
             }
             try {
                 const encoding = getSelectedEncoding();
-                const binary = atob(input);
+                const binary = safeAtob(input);
                 const bytes = new Uint8Array([...binary].map(char => char.charCodeAt(0)));
-                
+
                 let result;
                 if (encoding === 'utf8') {
                     const decoder = new TextDecoder();
                     result = decoder.decode(bytes);
+                    // 出现 U+FFFD 替换符说明原始字节不是合法 UTF-8 文本，二进制数据强转文本会不可逆丢失字节，需提示用户
+                    const badCount = (result.match(/�/g) || []).length;
+                    updateBinaryWarn(badCount);
                 } else {
                     result = gbkBytesToUtf8(bytes);
+                    // GBK 解码不产生 U+FFFD，无法据此判断是否二进制，仅确保警告不残留
+                    updateBinaryWarn(0);
                 }
+                // 缓存解码前的原始字节，供"保存原始字节(.bin)"无损保存
+                lastDecodedBytes = bytes;
+                lastDecodedSource = 'base64';
                 document.getElementById('string-result').textContent = result;
             } catch (error) {
+                // 转换失败时清空缓存，避免保存到与当前结果不符的旧字节
+                lastDecodedBytes = null;
+                lastDecodedSource = null;
+                updateBinaryWarn(0);
                 document.getElementById('string-result').textContent = '转换失败: ' + error.message;
             }
         }
@@ -7520,6 +7805,414 @@
             }
         }
 
+        // 保存最近一次 Hex/Base64 → 字符串 解码得到的原始字节为 .bin 文件
+        // 业务原因：二进制数据（密钥/密文等）经 TextDecoder 强转文本已产生 U+FFFD 损坏，
+        // "保存到文件"存下的是损坏文本，只有缓存的原始字节才能无损还原
+        function saveDecodedBytesToFile() {
+            if (!lastDecodedBytes || lastDecodedBytes.length === 0) {
+                showNotification('没有可保存的解码字节，请先执行 Hex → 字符串 或 Base64 → 字符串');
+                return;
+            }
+
+            try {
+                const byteCount = lastDecodedBytes.length;
+                const blob = new Blob([lastDecodedBytes], { type: 'application/octet-stream' });
+                const filename = 'decoded_bytes.bin';
+
+                if (window.showSaveFilePicker) {
+                    window.showSaveFilePicker({
+                        suggestedName: filename,
+                        types: [{
+                            description: 'Binary files',
+                            accept: { 'application/octet-stream': ['.bin'] }
+                        }]
+                    }).then(fileHandle => {
+                        return fileHandle.createWritable();
+                    }).then(writable => {
+                        return writable.write(blob).then(() => writable.close());
+                    }).then(() => {
+                        showNotification('文件已保存（' + byteCount + ' 字节）');
+                    }).catch(err => {
+                        console.error('保存文件失败:', err);
+                        showNotification('保存失败，请重试');
+                    });
+                } else {
+                    const url = window.URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = filename;
+                    a.style.display = 'none';
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                    window.URL.revokeObjectURL(url);
+                    showNotification('文件已保存到本地（' + byteCount + ' 字节）');
+                }
+            } catch (error) {
+                console.error('保存文件失败:', error);
+                showNotification('保存失败，请重试');
+            }
+        }
+
+        // ===================== URL/Unicode/随机字节 =====================
+        // 业务原因：URL 编解码、Unicode 转义、随机字节生成是开发调试中的高频小操作，
+        // 与编码转换同属一类，集中放在第三个页签内，复用统一的输入/结果/复制组件
+
+        // 读取 URL 编码模式（component=encodeURIComponent 参数模式 / uri=encodeURI 整URL模式）
+        // 业务原因：两种模式保留字符集不同——处理查询参数值必须用参数模式，
+        // 否则 ?&#= 等分隔符会被原样保留带来歧义；处理完整 URL 则需要整URL模式保留结构
+        function getUrlMode() {
+            const checked = document.querySelector('input[name="url-mode"]:checked');
+            return checked ? checked.value : 'component';
+        }
+
+        // URL 编码：按所选模式编码后写入结果区
+        function urlEncode() {
+            const input = document.getElementById('url-input').value;
+            if (!input) {
+                document.getElementById('url-result').textContent = '请输入内容';
+                return;
+            }
+            try {
+                const result = getUrlMode() === 'uri' ? encodeURI(input) : encodeURIComponent(input);
+                document.getElementById('url-result').textContent = result;
+            } catch (error) {
+                document.getElementById('url-result').textContent = '编码失败: ' + error.message;
+            }
+        }
+
+        // URL 解码：非法 % 序列（如 %GG 或被截断的 %E4）会抛 URIError，捕获后给出友好提示
+        function urlDecode() {
+            const input = document.getElementById('url-input').value;
+            if (!input) {
+                document.getElementById('url-result').textContent = '请输入内容';
+                return;
+            }
+            try {
+                const result = getUrlMode() === 'uri' ? decodeURI(input) : decodeURIComponent(input);
+                document.getElementById('url-result').textContent = result;
+            } catch (error) {
+                document.getElementById('url-result').textContent = '解码失败: ' + error.message;
+            }
+        }
+
+        // 字符串 → \uXXXX：逐个 UTF-16 码单元转为 4 位十六进制小写（不足 4 位补零）
+        // ASCII 可见字符也统一转换，牺牲少量可读性换取规则简单一致，便于程序间比对；
+        // 码单元级转换使 emoji 等增补平面字符输出为两个连续的 😀，天然可被下方解码函数还原
+        function stringToUnicode() {
+            const input = document.getElementById('unicode-input').value;
+            if (!input) {
+                document.getElementById('unicode-result').textContent = '请输入内容';
+                return;
+            }
+            let result = '';
+            for (let i = 0; i < input.length; i++) {
+                result += '\\u' + input.charCodeAt(i).toString(16).padStart(4, '0');
+            }
+            document.getElementById('unicode-result').textContent = result;
+        }
+
+        // \uXXXX → 字符串：正则匹配 4 位十六进制转义逐个还原
+        function unicodeToString() {
+            const input = document.getElementById('unicode-input').value;
+            if (!input) {
+                document.getElementById('unicode-result').textContent = '请输入内容';
+                return;
+            }
+            // 完全没有匹配时明确提示，避免原样输出让用户误以为转换未生效
+            if (!/\\u[0-9a-fA-F]{4}/.test(input)) {
+                document.getElementById('unicode-result').textContent = '未找到 \\uXXXX 转义序列';
+                return;
+            }
+            const result = input.replace(/\\u[0-9a-fA-F]{4}/g, match => String.fromCharCode(parseInt(match.slice(2), 16)));
+            document.getElementById('unicode-result').textContent = result;
+        }
+
+        // 随机字节生成：生成密钥/盐/IV 等场景使用，底层走 Web Crypto 保证密码学安全
+        function generateRandomBytes() {
+            const lengthInput = document.getElementById('random-length').value;
+            const length = parseInt(lengthInput, 10);
+            // 空/非数字/非正数/超上限均视为非法：上限 1MB 防止误填大数值导致页面卡死
+            if (!lengthInput || isNaN(length) || length <= 0 || length > 1048576) {
+                showNotification('请输入 1 ~ 1048576 之间的字节长度');
+                return;
+            }
+            const bytes = new Uint8Array(length);
+            // crypto.getRandomValues 单次调用上限 65536 字节，超过时必须分批循环填充
+            const MAX_BATCH = 65536;
+            for (let offset = 0; offset < length; offset += MAX_BATCH) {
+                crypto.getRandomValues(bytes.subarray(offset, Math.min(offset + MAX_BATCH, length)));
+            }
+            // 同时输出 Hex（大写）与 Base64 两种最常用格式，配合复制按钮按需取用
+            const hex = Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('').toUpperCase();
+            const base64 = btoa(bytesToBinaryString(bytes));
+            document.getElementById('random-result').textContent = 'Hex: ' + hex + '\nBase64: ' + base64;
+            showNotification('已生成 ' + length + ' 字节');
+        }
+
+        // 清空本页签全部输入与结果；随机长度恢复默认值 32，方便下次直接生成
+        function clearUrlUnicodeArea() {
+            document.getElementById('url-input').value = '';
+            document.getElementById('unicode-input').value = '';
+            document.getElementById('random-length').value = '32';
+            document.getElementById('url-result').textContent = '';
+            document.getElementById('unicode-result').textContent = '';
+            document.getElementById('random-result').textContent = '';
+        }
+
+        // ===================== 文件工具功能 =====================
+        // 全局状态：当前选中的文件 + 最近一次文件转换的完整结果
+        // 业务原因：大文件转换结果可达数百万字符，界面只展示前 10 万字符，
+        // 完整结果必须单独缓存，"下载完整结果"才有数据可下
+        let selectedFile = null;
+        let fileConvertFullResult = '';
+        // 记录当前转换结果的格式（'base64' 或 'hex'），下载时据此决定文件扩展名
+        let fileConvertFormat = 'base64';
+
+        // 将字节数格式化为人类可读的大小（自动选择 B/KB/MB/GB 单位）
+        function formatFileSize(bytes) {
+            if (bytes === 0) return '0 B';
+            const units = ['B', 'KB', 'MB', 'GB'];
+            let index = 0;
+            let size = bytes;
+            while (size >= 1024 && index < units.length - 1) {
+                size /= 1024;
+                index++;
+            }
+            // B 取整数，其余单位保留 2 位小数
+            return (index === 0 ? size : size.toFixed(2)) + ' ' + units[index];
+        }
+
+        // 处理文件选择（点击选择和拖拽两种方式均走此入口）
+        function handleFileSelect(file) {
+            if (!file) return;
+            selectedFile = file;
+            // 大于 50MB 的文件读取与哈希计算耗时明显，提前在信息区提示用户
+            const sizeTip = file.size > 50 * 1024 * 1024 ? '（文件较大，计算可能需要数秒）' : '';
+            document.getElementById('file-info').textContent =
+                '文件名: ' + file.name + ' | 大小: ' + formatFileSize(file.size) +
+                ' | 类型: ' + (file.type || '未知') + sizeTip;
+            // 切换文件后旧哈希与转换结果已失效，全部重置避免误读
+            setAllFileHashResults('-');
+            document.getElementById('file-convert-result').textContent = '';
+            fileConvertFullResult = '';
+        }
+
+        // 批量设置 10 个文件哈希结果框的占位文本（计算中/失败/重置）
+        function setAllFileHashResults(value) {
+            const ids = ['file-md5-hex','file-md5-base64','file-sha1-hex','file-sha1-base64','file-sha256-hex','file-sha256-base64','file-sha512-hex','file-sha512-base64','file-sm3-hex','file-sm3-base64'];
+            ids.forEach(id => {
+                const el = document.getElementById(id);
+                if (el) el.textContent = value;
+            });
+        }
+
+        // 读取文件为 ArrayBuffer：Promise 封装 FileReader，便于 async/await 串联
+        function readFileAsArrayBuffer(file) {
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = () => resolve(reader.result);
+                reader.onerror = () => reject(reader.error || new Error('文件读取失败'));
+                reader.readAsArrayBuffer(file);
+            });
+        }
+
+        // 对完整文件字节计算五种哈希（与文本页签对相同字节计算走同一套算法，结果天然一致）
+        async function calculateFileHashes() {
+            if (!selectedFile) {
+                showNotification('请先选择文件');
+                return;
+            }
+            setAllFileHashResults('计算中...');
+            try {
+                const buffer = await readFileAsArrayBuffer(selectedFile);
+                const data = new Uint8Array(buffer);
+
+                // MD5 使用 CryptoJS（同步，字节包装为 WordArray，与文本页签同一代码路径）
+                const md5Word = CryptoJS.MD5(CryptoJS.lib.WordArray.create(data));
+
+                // SHA 系列使用 Web Crypto
+                const [sha1Buf, sha256Buf, sha512Buf] = await Promise.all([
+                    window.crypto.subtle.digest('SHA-1', data),
+                    window.crypto.subtle.digest('SHA-256', data),
+                    window.crypto.subtle.digest('SHA-512', data)
+                ]);
+
+                const sha1Out = formatHashOutputs(sha1Buf);
+                const sha256Out = formatHashOutputs(sha256Buf);
+                const sha512Out = formatHashOutputs(sha512Buf);
+
+                // SM3 内嵌实现返回 hex，再转 Base64
+                const sm3Hex = window.sm3Hash(data);
+                const sm3Bytes = [];
+                for (let i = 0; i < sm3Hex.length; i += 2) sm3Bytes.push(parseInt(sm3Hex.substr(i, 2), 16));
+                const sm3Base64 = btoa(bytesToBinaryString(sm3Bytes));
+
+                // 填充到页面（分别写入 hex 与 base64 到两个框）
+                document.getElementById('file-md5-hex').textContent = md5Word.toString(CryptoJS.enc.Hex);
+                document.getElementById('file-md5-base64').textContent = md5Word.toString(CryptoJS.enc.Base64);
+
+                document.getElementById('file-sha1-hex').textContent = sha1Out.hex;
+                document.getElementById('file-sha1-base64').textContent = sha1Out.base64;
+
+                document.getElementById('file-sha256-hex').textContent = sha256Out.hex;
+                document.getElementById('file-sha256-base64').textContent = sha256Out.base64;
+
+                document.getElementById('file-sha512-hex').textContent = sha512Out.hex;
+                document.getElementById('file-sha512-base64').textContent = sha512Out.base64;
+
+                document.getElementById('file-sm3-hex').textContent = sm3Hex;
+                document.getElementById('file-sm3-base64').textContent = sm3Base64;
+
+            } catch (error) {
+                console.error('文件哈希计算错误:', error);
+                setAllFileHashResults('计算失败: ' + error.message);
+            }
+        }
+
+        // 展示文件转换结果：超过 10 万字符只在界面显示前 10 万字符并追加截断说明，
+        // 完整内容仍保留在 fileConvertFullResult 供下载
+        function displayFileConvertResult(text) {
+            const MAX_DISPLAY = 100000;
+            const el = document.getElementById('file-convert-result');
+            if (text.length > MAX_DISPLAY) {
+                el.textContent = text.slice(0, MAX_DISPLAY) + '\n...(结果过大已截断显示，请点击"下载完整结果"获取全部)';
+            } else {
+                el.textContent = text;
+            }
+        }
+
+        // 文件 → Base64：整个文件字节编码为 Base64（Data URI、文件传输场景常用）
+        async function convertFileToBase64() {
+            if (!selectedFile) {
+                showNotification('请先选择文件');
+                return;
+            }
+            try {
+                document.getElementById('file-convert-result').textContent = '转换中...';
+                const buffer = await readFileAsArrayBuffer(selectedFile);
+                // bytesToBinaryString 内部分块拼接，避免大文件一次性展开爆栈
+                const base64 = btoa(bytesToBinaryString(new Uint8Array(buffer)));
+                fileConvertFormat = 'base64';
+                fileConvertFullResult = base64;
+                displayFileConvertResult(base64);
+            } catch (error) {
+                console.error('文件转Base64失败:', error);
+                fileConvertFullResult = '';
+                document.getElementById('file-convert-result').textContent = '转换失败: ' + error.message;
+            }
+        }
+
+        // 文件 → Hex（大写）：分块拼接控制内存峰值，大文件逐字节 map+join 会产生超大临时数组
+        async function convertFileToHex() {
+            if (!selectedFile) {
+                showNotification('请先选择文件');
+                return;
+            }
+            try {
+                document.getElementById('file-convert-result').textContent = '转换中...';
+                const buffer = await readFileAsArrayBuffer(selectedFile);
+                const bytes = new Uint8Array(buffer);
+                let hex = '';
+                const CHUNK_SIZE = 0x8000;
+                for (let i = 0; i < bytes.length; i += CHUNK_SIZE) {
+                    let part = '';
+                    const end = Math.min(i + CHUNK_SIZE, bytes.length);
+                    for (let j = i; j < end; j++) {
+                        part += bytes[j].toString(16).padStart(2, '0');
+                    }
+                    hex += part.toUpperCase();
+                }
+                fileConvertFormat = 'hex';
+                fileConvertFullResult = hex;
+                displayFileConvertResult(hex);
+            } catch (error) {
+                console.error('文件转Hex失败:', error);
+                fileConvertFullResult = '';
+                document.getElementById('file-convert-result').textContent = '转换失败: ' + error.message;
+            }
+        }
+
+        // 下载完整的转换结果（界面截断时获取全部内容的唯一途径）
+        function downloadFileConvertResult() {
+            if (!fileConvertFullResult) {
+                showNotification('没有可下载的结果，请先执行 文件 → Base64 或 文件 → Hex');
+                return;
+            }
+            try {
+                // 按当前格式决定扩展名：文件名.base64.txt / 文件名.hex.txt
+                const ext = fileConvertFormat === 'hex' ? '.hex.txt' : '.base64.txt';
+                const filename = (selectedFile ? selectedFile.name : 'file') + ext;
+                const blob = new Blob([fileConvertFullResult], { type: 'text/plain;charset=utf-8' });
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = filename;
+                a.style.display = 'none';
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                window.URL.revokeObjectURL(url);
+                showNotification('完整结果已开始下载');
+            } catch (error) {
+                console.error('下载结果失败:', error);
+                showNotification('下载失败，请重试');
+            }
+        }
+
+        // 清空文件工具区域：释放文件引用并复位所有展示
+        function clearFileArea() {
+            selectedFile = null;
+            fileConvertFullResult = '';
+            document.getElementById('file-input').value = '';
+            document.getElementById('file-info').textContent = '';
+            document.getElementById('file-convert-result').textContent = '';
+            setAllFileHashResults('-');
+        }
+
+        // 文件工具事件绑定（DOM 加载完成后绑定，确保元素已就绪）
+        document.addEventListener('DOMContentLoaded', function() {
+            const dropZone = document.getElementById('file-drop-zone');
+            const fileInput = document.getElementById('file-input');
+
+            // 点击拖拽区弹出文件选择框
+            dropZone.addEventListener('click', function(event) {
+                // input.click() 派发的 click 事件会冒泡回拖拽区，
+                // 不拦截会再次触发本处理器造成无限递归
+                if (event.target === fileInput) return;
+                fileInput.click();
+            });
+
+            // 拖拽悬停高亮（dragover 必须 preventDefault，否则浏览器直接打开文件）
+            dropZone.addEventListener('dragover', function(event) {
+                event.preventDefault();
+                dropZone.classList.add('dragover');
+            });
+
+            // 拖拽离开时取消高亮
+            dropZone.addEventListener('dragleave', function(event) {
+                event.preventDefault();
+                dropZone.classList.remove('dragover');
+            });
+
+            // 释放文件完成选择
+            dropZone.addEventListener('drop', function(event) {
+                event.preventDefault();
+                dropZone.classList.remove('dragover');
+                const files = event.dataTransfer && event.dataTransfer.files;
+                if (files && files.length > 0) {
+                    handleFileSelect(files[0]);
+                }
+            });
+
+            // 点击方式选择文件
+            fileInput.addEventListener('change', function() {
+                if (fileInput.files && fileInput.files.length > 0) {
+                    handleFileSelect(fileInput.files[0]);
+                }
+            });
+        });
+
         // 哈希计算函数
         function getSelectedHashEncoding() {
             return document.querySelector('input[name="hash-encoding"]:checked').value;
@@ -7581,7 +8274,7 @@
                 } else if (inputFormat === 'base64') {
                     // Base64格式：使用atob解码
                     try {
-                        const binaryString = atob(input.trim());
+                        const binaryString = safeAtob(input);
                         const bytes = new Uint8Array(binaryString.length);
                         for (let i = 0; i < binaryString.length; i++) {
                             bytes[i] = binaryString.charCodeAt(i);
@@ -7626,7 +8319,7 @@
                 // hex -> base64
                 const sm3Bytes = [];
                 for (let i = 0; i < sm3Hex.length; i += 2) sm3Bytes.push(parseInt(sm3Hex.substr(i, 2), 16));
-                const sm3Base64 = btoa(String.fromCharCode(...sm3Bytes));
+                const sm3Base64 = btoa(bytesToBinaryString(sm3Bytes));
 
                 // 填充到页面（分别写入 hex 与 base64 到两个框）
                 document.getElementById('md5-hex').textContent = md5Hex;
