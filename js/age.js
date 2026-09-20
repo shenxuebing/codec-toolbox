@@ -152,6 +152,29 @@ function ageBuildResult(birth, target) {
         lines.push(line);
     }
 
+    // 3.5 农历生日与下次农历生日（公历 ↔ 农历换算 1900-2049）
+    var lunarNext = ageGetNextLunarBirthday(birth, target);
+    if (lunarNext.birthLunar) {
+        var bl = lunarNext.birthLunar;
+        lines.push('农历生日：' + ageLunarYearCn(bl.year) + '年' + ageLunarDateCn(bl) +
+            '（农历 ' + bl.year + '-' + (bl.isLeapMonth ? '闰' : '') + bl.month + '-' + bl.day + '）');
+    }
+    if (lunarNext.error) {
+        lines.push('下次农历生日：' + lunarNext.error);
+    } else if (lunarNext.isToday) {
+        lines.push('下次农历生日：今天正是农历生日 🎉（星期' + AGE_WEEKDAYS[lunarNext.date.getDay()] + '）');
+    } else {
+        var lunarLine = '下次农历生日：' + ageFormatDate(lunarNext.date.getFullYear(), lunarNext.date.getMonth() + 1, lunarNext.date.getDate()) +
+            ' 星期' + AGE_WEEKDAYS[lunarNext.date.getDay()] +
+            '（农历' + (ageSolarToLunar(lunarNext.date).isLeapMonth ? '闰' : '') +
+            AGE_LUNAR_MONTHS[ageSolarToLunar(lunarNext.date).month] + '月' +
+            AGE_LUNAR_DAYS[ageSolarToLunar(lunarNext.date).day] + '），距今 ' + lunarNext.daysLeft + ' 天';
+        if (lunarNext.notes.length > 0) {
+            lunarLine += '（' + lunarNext.notes.join('；') + '）';
+        }
+        lines.push(lunarLine);
+    }
+
     // 4. 生肖 & 5. 星座
     lines.push('生肖：' + ageGetZodiac(birth.y));
     lines.push('星座：' + ageGetConstellation(birth.m, birth.d));
@@ -161,6 +184,186 @@ function ageBuildResult(birth, target) {
     lines.push('出生当天：星期' + AGE_WEEKDAYS[birthWeekday]);
 
     return lines.join('\n');
+}
+
+// ---------- 农历换算（1900-2049） ----------
+// 数据口径：经典 lunarInfo 压缩表，每年一个数——低 4 位为闰月月份（0 = 无闰月），
+// bit16 为闰月大小（1 = 30 天），bit15..bit4 从正月到腊月的 12 个月大小（1 = 30 天大月）。
+// 支持范围 1900-2049（下次农历生日最多外推一年，2049 内足够覆盖），超出返回 null 并提示。
+var AGE_LUNAR_INFO = [
+    0x04bd8, 0x04ae0, 0x0a570, 0x054d5, 0x0d260, 0x0d950, 0x16554, 0x056a0, 0x09ad0, 0x055d2, // 1900-1909
+    0x04ae0, 0x0a5b6, 0x0a4d0, 0x0d250, 0x1d255, 0x0b540, 0x0d6a0, 0x0ada2, 0x095b0, 0x14977, // 1910-1919
+    0x04970, 0x0a4b0, 0x0b4b5, 0x06a50, 0x06d40, 0x1ab54, 0x02b60, 0x09570, 0x052f2, 0x04970, // 1920-1929
+    0x06566, 0x0d4a0, 0x0ea50, 0x06e95, 0x05ad0, 0x02b60, 0x186e3, 0x092e0, 0x1c8d7, 0x0c950, // 1930-1939
+    0x0d4a0, 0x1d8a6, 0x0b550, 0x056a0, 0x1a5b4, 0x025d0, 0x092d0, 0x0d2b2, 0x0a950, 0x0b557, // 1940-1949
+    0x06ca0, 0x0b550, 0x15355, 0x04da0, 0x0a5b0, 0x14573, 0x052b0, 0x0a9a8, 0x0e950, 0x06aa0, // 1950-1959
+    0x0aea6, 0x0ab50, 0x04b60, 0x0aae4, 0x0a570, 0x05260, 0x0f263, 0x0d950, 0x05b57, 0x056a0, // 1960-1969
+    0x096d0, 0x04dd5, 0x04ad0, 0x0a4d0, 0x0d4d4, 0x0d250, 0x0d558, 0x0b540, 0x0b6a0, 0x195a6, // 1970-1979
+    0x095b0, 0x049b0, 0x0a974, 0x0a4b0, 0x0b27a, 0x06a50, 0x06d40, 0x0af46, 0x0ab60, 0x09570, // 1980-1989
+    0x04af5, 0x04970, 0x064b0, 0x074a3, 0x0ea50, 0x06b58, 0x055c0, 0x0ab60, 0x096d5, 0x092e0, // 1990-1999
+    0x0c960, 0x0d954, 0x0d4a0, 0x0da50, 0x07552, 0x056a0, 0x0abb7, 0x025d0, 0x092d0, 0x0cab5, // 2000-2009
+    0x0a950, 0x0b4a0, 0x0baa4, 0x0ad50, 0x055d9, 0x04ba0, 0x0a5b0, 0x15176, 0x052b0, 0x0a930, // 2010-2019
+    0x07954, 0x06aa0, 0x0ad50, 0x05b52, 0x04b60, 0x0a6e6, 0x0a4e0, 0x0d260, 0x0ea65, 0x0d530, // 2020-2029
+    0x05aa0, 0x076a3, 0x096d0, 0x04afb, 0x04ad0, 0x0a4d0, 0x1d0b6, 0x0d250, 0x0d520, 0x0dd45, // 2030-2039
+    0x0b5a0, 0x056d0, 0x055b2, 0x049b0, 0x0a577, 0x0a4b0, 0x0aa50, 0x1b255, 0x06d20, 0x0ada0  // 2040-2049
+];
+
+// 农历换算支持的年份边界（右开：y <= 2049 可用）
+var AGE_LUNAR_MAX_YEAR = 2049;
+
+// 农历 1900 年正月初一对应的公历日期（换算基准）
+var AGE_LUNAR_EPOCH = new Date(1900, 0, 31);
+
+// 农历月份名（下标 1-12 对应正月到腊月）
+var AGE_LUNAR_MONTHS = ['', '正', '二', '三', '四', '五', '六', '七', '八', '九', '十', '冬', '腊'];
+
+// 农历日名（初一到三十）
+var AGE_LUNAR_DAYS = ['', '初一', '初二', '初三', '初四', '初五', '初六', '初七', '初八', '初九', '初十',
+    '十一', '十二', '十三', '十四', '十五', '十六', '十七', '十八', '十九', '二十',
+    '廿一', '廿二', '廿三', '廿四', '廿五', '廿六', '廿七', '廿八', '廿九', '三十'];
+
+// 某农历年闰哪个月（0 = 无闰月）
+function ageLunarLeapMonth(year) {
+    return AGE_LUNAR_INFO[year - 1900] & 0xf;
+}
+
+// 某农历年闰月的天数（29 或 30；无闰月返回 0）
+function ageLunarLeapDays(year) {
+    if (ageLunarLeapMonth(year) === 0) return 0;
+    return (AGE_LUNAR_INFO[year - 1900] & 0x10000) ? 30 : 29;
+}
+
+// 某农历年普通月（1-12）的天数（29 或 30）
+function ageLunarMonthDays(year, month) {
+    return (AGE_LUNAR_INFO[year - 1900] & (0x10000 >> month)) ? 30 : 29;
+}
+
+// 某农历年总天数（12 个普通月 + 可能的闰月）
+function ageLunarYearDays(year) {
+    var sum = 348;   // 12 个月 × 29 天小月基准
+    for (var i = 0x8000; i > 0x8; i >>= 1) {
+        if (AGE_LUNAR_INFO[year - 1900] & i) sum++;
+    }
+    return sum + ageLunarLeapDays(year);
+}
+
+// 构建某农历年的月序列：[{month, isLeap, days}]，闰月排在同名普通月之后；
+// 下次农历生日查找需按"顺序"定位月份，序列化后线性扫描最不易错
+function ageLunarMonthList(year) {
+    var list = [];
+    var leap = ageLunarLeapMonth(year);
+    for (var m = 1; m <= 12; m++) {
+        list.push({ month: m, isLeap: false, days: ageLunarMonthDays(year, m) });
+        if (leap === m) {
+            list.push({ month: m, isLeap: true, days: ageLunarLeapDays(year) });
+        }
+    }
+    return list;
+}
+
+// 公历 → 农历：返回 {year, month, day, isLeapMonth}；超范围返回 null
+// 入参为本地时区 00:00 的 Date
+function ageSolarToLunar(date) {
+    var offset = Math.round((date.getTime() - AGE_LUNAR_EPOCH.getTime()) / 86400000);
+    if (offset < 0) return null;
+    var year = 1900;
+    while (year <= AGE_LUNAR_MAX_YEAR) {
+        var yearDays = ageLunarYearDays(year);
+        if (offset < yearDays) break;
+        offset -= yearDays;
+        year++;
+    }
+    if (year > AGE_LUNAR_MAX_YEAR) return null;
+    var months = ageLunarMonthList(year);
+    var idx = 0;
+    while (idx < months.length) {
+        if (offset < months[idx].days) break;
+        offset -= months[idx].days;
+        idx++;
+    }
+    var m = months[idx] || months[months.length - 1];
+    return { year: year, month: m.month, day: offset + 1, isLeapMonth: m.isLeap };
+}
+
+// 农历 → 公历：年/月(1-12)/日/是否闰月 → 该农历日 00:00 的 Date；年份超范围返回 null
+function ageLunarToSolar(year, month, day, isLeap) {
+    if (year < 1900 || year > AGE_LUNAR_MAX_YEAR) return null;
+    var days = 0;
+    for (var y = 1900; y < year; y++) days += ageLunarYearDays(y);
+    var months = ageLunarMonthList(year);
+    for (var i = 0; i < months.length; i++) {
+        var m = months[i];
+        if (m.month === month && m.isLeap === !!isLeap) {
+            return new Date(1900, 0, 31 + days + dayOffset(months, i) + day - 1);
+        }
+    }
+    return null;   // 该年不存在此闰月
+}
+
+// 月序列中第 idx 个月之前累计的天数
+function dayOffset(months, idx) {
+    var sum = 0;
+    for (var i = 0; i < idx; i++) sum += months[i].days;
+    return sum;
+}
+
+// 公历数字年份 → 中文数字年（2000 → 二〇〇〇）
+function ageLunarYearCn(year) {
+    var digits = '〇一二三四五六七八九';
+    var s = String(year);
+    var out = '';
+    for (var i = 0; i < s.length; i++) out += digits[parseInt(s[i], 10)];
+    return out;
+}
+
+// 农历日期 → 中文串（正月初一 / 闰六月十五）
+function ageLunarDateCn(lunar) {
+    return (lunar.isLeapMonth ? '闰' : '') + AGE_LUNAR_MONTHS[lunar.month] + '月' + AGE_LUNAR_DAYS[lunar.day];
+}
+
+// 下次农历生日：从基准日 target 起找出生农历月日对应的下一个公历日期。
+// 规则：出生在普通月 → 恒取普通月（当年有闰同名月也不跟闰月）；
+//       出生在闰月 → 优先取闰月，当年无闰同名月则取普通月并注明；
+//       出生日为三十而当年该月只有廿九 → 取廿九并注明。
+// 返回 {date, daysLeft, notes:[]}；换算超范围返回 {error: 提示}
+function ageGetNextLunarBirthday(birth, target) {
+    var birthDate = new Date(birth.y, birth.m - 1, birth.d);
+    var birthLunar = ageSolarToLunar(birthDate);
+    if (!birthLunar) {
+        return { error: '出生日期超出农历换算支持范围（1900-2049）' };
+    }
+    var targetDate = new Date(target.y, target.m - 1, target.d);
+    var lm = birthLunar.month;
+    var ld = birthLunar.day;
+
+    for (var ly = target.y; ly <= target.y + 1; ly++) {
+        if (ly < 1900 || ly > AGE_LUNAR_MAX_YEAR) {
+            return { error: '下次农历生日超出换算支持范围（1900-2049）', birthLunar: birthLunar };
+        }
+        var notes = [];
+        // 确定取闰月还是普通月
+        var useLeap = false;
+        if (birthLunar.isLeapMonth) {
+            if (ageLunarLeapMonth(ly) === lm) {
+                useLeap = true;
+            } else {
+                notes.push('该年无闰' + AGE_LUNAR_MONTHS[lm] + '月，按普通' + AGE_LUNAR_MONTHS[lm] + '月计');
+            }
+        }
+        var day = ld;
+        var monthDaysActual = useLeap ? ageLunarLeapDays(ly) : ageLunarMonthDays(ly, lm);
+        if (day > monthDaysActual) {
+            day = monthDaysActual;   // 出生三十遇小月：按当月最后一天
+            notes.push('该年' + (useLeap ? '闰' : '') + AGE_LUNAR_MONTHS[lm] + '月无三十，按' + AGE_LUNAR_DAYS[day] + '计');
+        }
+        var solar = ageLunarToSolar(ly, lm, day, useLeap);
+        if (!solar) continue;   // 理论不达（闰月判断已前置），防御性跳过
+        if (solar.getTime() >= targetDate.getTime()) {
+            var daysLeft = Math.round((solar.getTime() - targetDate.getTime()) / 86400000);
+            return { date: solar, daysLeft: daysLeft, notes: notes, birthLunar: birthLunar, isToday: daysLeft === 0 };
+        }
+    }
+    return { error: '下次农历生日超出换算支持范围（1900-2049）', birthLunar: birthLunar };
 }
 
 // ---------- 页面交互 ----------
@@ -232,4 +435,15 @@ if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', ageInit);
 } else {
     ageInit();
+}
+
+// Node 环境导出纯计算函数（浏览器中 module 未定义，此块自动跳过，便于锚点对拍自测）
+if (typeof module !== 'undefined' && module.exports) {
+    module.exports = {
+        ageSolarToLunar: ageSolarToLunar,
+        ageLunarToSolar: ageLunarToSolar,
+        ageLunarLeapMonth: ageLunarLeapMonth,
+        ageGetNextLunarBirthday: ageGetNextLunarBirthday,
+        ageBuildResult: ageBuildResult
+    };
 }
