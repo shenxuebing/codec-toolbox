@@ -1,0 +1,612 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>增强版编解码工具</title>
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+    <!-- 左侧固定侧边栏：工具标题 + 功能菜单 -->
+    <aside class="sidebar">
+        <div class="sidebar-title">
+            <h1>🔧 编解码工具箱</h1>
+            <p>离线运行 · 完整GBK支持<br>（23940个GBK字符）</p>
+        </div>
+        <nav class="sidebar-menu">
+            <button type="button" class="menu-item active" data-page="page-base64hex"><span class="menu-icon">🔄</span><span class="menu-text">Base64 / Hex</span></button>
+            <button type="button" class="menu-item" data-page="page-string"><span class="menu-icon">🔤</span><span class="menu-text">字符串编码</span></button>
+            <button type="button" class="menu-item" data-page="page-url"><span class="menu-icon">🔗</span><span class="menu-text">URL 工具</span></button>
+            <button type="button" class="menu-item" data-page="page-unicode"><span class="menu-icon">🇺🇳</span><span class="menu-text">Unicode 转换</span></button>
+            <button type="button" class="menu-item" data-page="page-random"><span class="menu-icon">🎲</span><span class="menu-text">随机字节</span></button>
+            <button type="button" class="menu-item" data-page="page-hash"><span class="menu-icon">🔒</span><span class="menu-text">哈希计算</span></button>
+            <button type="button" class="menu-item" data-page="page-file"><span class="menu-icon">📁</span><span class="menu-text">文件工具</span></button>
+            <button type="button" class="menu-item" data-page="page-timestamp"><span class="menu-icon">🕐</span><span class="menu-text">时间戳转换</span></button>
+            <button type="button" class="menu-item" data-page="page-jwt"><span class="menu-icon">🔑</span><span class="menu-text">JWT 工具</span></button>
+            <button type="button" class="menu-item" data-page="page-ascii"><span class="menu-icon">📋</span><span class="menu-text">ASCII 码表</span></button>
+            <button type="button" class="menu-item" data-page="page-json"><span class="menu-icon">🗂️</span><span class="menu-text">JSON 工具</span></button>
+        </nav>
+    </aside>
+
+    <!-- 右侧主内容区：11 个功能页面，同一时刻只显示一个 -->
+    <main class="main-area">
+        <div class="container">
+
+            <!-- Base64 / Hex 互转（自旧版 hex-base64 页签拆出） -->
+            <div id="page-base64hex" class="page active">
+                <div class="section">
+                    <h2>🔄 Base64 / Hex 转换</h2>
+                    <div class="input-group">
+                        <label>输入内容 (Hex 或 Base64)</label>
+                        <textarea id="hex-input" placeholder="输入Hex (如: 48656C6C6F) 或 Base64 (如: SGVsbG8=) 内容..."></textarea>
+                    </div>
+                    <div class="button-group">
+                        <button class="btn btn-primary" onclick="hexToBase64()">Hex → Base64</button>
+                        <button class="btn btn-primary" onclick="base64ToHex()">Base64 → Hex</button>
+                        <button class="btn btn-secondary" onclick="clearHexArea()">清空</button>
+                        <button class="btn btn-secondary" onclick="autoDetectAndConvert()">自动识别转换</button>
+                    </div>
+                    <div class="input-group">
+                        <label>转换结果</label>
+                        <div class="result-container">
+                            <div class="result-area" id="hex-result"></div>
+                            <button class="copy-btn" onclick="copyToClipboard('hex-result')">复制</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 字符串编码转换（自旧版 string-encoding 页签拆出） -->
+            <div id="page-string" class="page">
+                <div class="section">
+                    <h2>🔤 字符串编码转换</h2>
+                    <div class="input-group">
+                        <label>输入字符串</label>
+                        <textarea id="string-input" placeholder="输入任意字符串，支持中文、英文、特殊字符..."></textarea>
+                    </div>
+                    <div class="encoding-selector">
+                        <label><input type="radio" name="encoding" value="utf8" checked><span>UTF-8编码</span></label>
+                        <label><input type="radio" name="encoding" value="gbk"><span>GBK编码</span></label>
+                    </div>
+                    <div class="button-group">
+                        <button class="btn btn-primary" onclick="stringToHex()">字符串 → Hex</button>
+                        <button class="btn btn-primary" onclick="stringToBase64()">字符串 → Base64</button>
+                        <button class="btn btn-primary" onclick="hexToString()">Hex → 字符串</button>
+                        <button class="btn btn-primary" onclick="base64ToString()">Base64 → 字符串</button>
+                    </div>
+                    <div class="input-group">
+                        <label>转换结果</label>
+                        <div class="result-container">
+                            <!-- 二进制数据转字符串的警告（默认隐藏，检测到 U+FFFD 替换符时由 JS 显示） -->
+                            <div id="binary-warn" class="binary-warn" style="display:none;"></div>
+                            <div class="result-area" id="string-result"></div>
+                            <button class="copy-btn" onclick="copyToClipboard('string-result')">复制</button>
+                            <button class="btn btn-secondary" onclick="saveStringResultToFile()">保存到文件</button>
+                            <button class="btn btn-secondary" onclick="saveDecodedBytesToFile()">保存原始字节(.bin)</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- URL 工具（自旧版 url-unicode 页签拆出，并新增参数解析子区块） -->
+            <div id="page-url" class="page">
+                <div class="section">
+                    <h2>🔗 URL 工具</h2>
+                    <!-- URL 编码：处理查询参数值或完整 URL 的编码/解码 -->
+                    <div class="input-group">
+                        <label>URL 编码 - 输入内容</label>
+                        <textarea id="url-input" placeholder="输入要进行 URL 编码/解码的内容..."></textarea>
+                    </div>
+                    <div class="encoding-selector">
+                        <!-- 两种模式保留字符不同：参数模式会编码 ?&#= 等分隔符，适合单个参数值；整URL模式保留 URL 结构字符 -->
+                        <label><input type="radio" name="url-mode" value="component" checked><span>encodeURIComponent（参数模式）</span></label>
+                        <label><input type="radio" name="url-mode" value="uri"><span>encodeURI（整URL模式）</span></label>
+                    </div>
+                    <div class="button-group">
+                        <button class="btn btn-primary" onclick="urlEncode()">URL 编码</button>
+                        <button class="btn btn-primary" onclick="urlDecode()">URL 解码</button>
+                    </div>
+                    <div class="input-group">
+                        <label>转换结果</label>
+                        <div class="result-container">
+                            <div class="result-area" id="url-result"></div>
+                            <button class="copy-btn" onclick="copyToClipboard('url-result')">复制</button>
+                        </div>
+                    </div>
+                    <!-- URL 参数解析：输入含 ? 时，编码/解码成功后自动解析查询串为表格 -->
+                    <div class="input-group">
+                        <label>URL 参数解析</label>
+                        <div class="result-area" id="url-query-result">输入包含 ? 的 URL 并执行编码/解码后，此处自动解析查询参数</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Unicode 转换（自旧版 url-unicode 页签拆出） -->
+            <div id="page-unicode" class="page">
+                <div class="section">
+                    <h2>🇺🇳 Unicode 转换</h2>
+                    <!-- Unicode 转义：字符串与 \uXXXX 转义序列互转（配置文件/源码中常见写法） -->
+                    <div class="input-group">
+                        <label>Unicode 转义 - 输入内容</label>
+                        <textarea id="unicode-input" placeholder="输入字符串或 \uXXXX 转义序列..."></textarea>
+                    </div>
+                    <div class="button-group">
+                        <button class="btn btn-primary" onclick="stringToUnicode()">字符串 → \uXXXX</button>
+                        <button class="btn btn-primary" onclick="unicodeToString()">\uXXXX → 字符串</button>
+                    </div>
+                    <div class="input-group">
+                        <label>转换结果</label>
+                        <div class="result-container">
+                            <div class="result-area" id="unicode-result"></div>
+                            <button class="copy-btn" onclick="copyToClipboard('unicode-result')">复制</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 随机字节（自旧版 url-unicode 页签拆出） -->
+            <div id="page-random" class="page">
+                <div class="section">
+                    <h2>🎲 随机字节</h2>
+                    <!-- 随机字节生成：生成密钥/盐/IV 等密码学随机数据 -->
+                    <div class="input-group">
+                        <label>字节长度</label>
+                        <input type="number" id="random-length" value="32" min="1" max="1048576" style="width:100%;max-width:220px;padding:10px;border:2px solid #e9ecef;border-radius:6px;font-size:14px;box-sizing:border-box;">
+                    </div>
+                    <div class="button-group">
+                        <button class="btn btn-primary" onclick="generateRandomBytes()">生成随机字节</button>
+                        <button class="btn btn-secondary" onclick="clearUrlUnicodeArea()">清空</button>
+                    </div>
+                    <div class="input-group">
+                        <label>转换结果</label>
+                        <div class="result-container">
+                            <div class="result-area" id="random-result"></div>
+                            <button class="copy-btn" onclick="copyToClipboard('random-result')">复制</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 哈希计算（自旧版哈希 section 迁移） -->
+            <div id="page-hash" class="page">
+                <div class="section">
+                    <h2>🔒 哈希计算</h2>
+
+                    <div class="input-group">
+                        <label>输入内容</label>
+                        <textarea id="hash-input" placeholder="输入要计算哈希值的内容..."></textarea>
+                    </div>
+                    <div class="encoding-selector">
+                        <label style="margin-right: 20px; font-weight: bold; color: #333;">输入格式：</label>
+                        <label><input type="radio" name="hash-input-format" value="text" checked><span>文本</span></label>
+                        <label><input type="radio" name="hash-input-format" value="hex"><span>Hex</span></label>
+                        <label><input type="radio" name="hash-input-format" value="base64"><span>Base64</span></label>
+                    </div>
+                    <div class="encoding-selector" id="hash-text-encoding-selector">
+                        <label style="margin-right: 20px; font-weight: bold; color: #333;">文本编码：</label>
+                        <label><input type="radio" name="hash-encoding" value="utf8" checked><span>UTF-8编码</span></label>
+                        <label><input type="radio" name="hash-encoding" value="gbk"><span>GBK编码</span></label>
+                    </div>
+                    <!-- 输出格式不再需要选择，默认显示 Hex 与 Base64 两种结果 -->
+                    <div class="button-group">
+                        <button class="btn btn-primary" onclick="calculateAllHashes()">计算所有哈希</button>
+                        <button class="btn btn-secondary" onclick="clearHashArea()">清空</button>
+                    </div>
+                    <div class="hash-results">
+                        <div class="hash-item">
+                            <h4>MD5</h4>
+                            <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-start;">
+                                <div class="result-container" style="flex:1;min-width:200px;position:relative;">
+                                    <div class="hash-value" id="md5-hex">-</div>
+                                    <button class="copy-btn" onclick="copySpecific('md5','hex')">复制</button>
+                                </div>
+                                <div class="result-container" style="flex:1;min-width:200px;position:relative;">
+                                    <div class="hash-value" id="md5-base64">-</div>
+                                    <button class="copy-btn" onclick="copySpecific('md5','base64')">复制</button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="hash-item">
+                            <h4>SHA-1</h4>
+                            <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-start;">
+                                <div class="result-container" style="flex:1;min-width:200px;position:relative;">
+                                    <div class="hash-value" id="sha1-hex">-</div>
+                                    <button class="copy-btn" onclick="copySpecific('sha1','hex')">复制</button>
+                                </div>
+                                <div class="result-container" style="flex:1;min-width:200px;position:relative;">
+                                    <div class="hash-value" id="sha1-base64">-</div>
+                                    <button class="copy-btn" onclick="copySpecific('sha1','base64')">复制</button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="hash-item">
+                            <h4>SHA-256</h4>
+                            <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-start;">
+                                <div class="result-container" style="flex:1;min-width:200px;position:relative;">
+                                    <div class="hash-value" id="sha256-hex">-</div>
+                                    <button class="copy-btn" onclick="copySpecific('sha256','hex')">复制</button>
+                                </div>
+                                <div class="result-container" style="flex:1;min-width:200px;position:relative;">
+                                    <div class="hash-value" id="sha256-base64">-</div>
+                                    <button class="copy-btn" onclick="copySpecific('sha256','base64')">复制</button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="hash-item">
+                            <h4>SHA-512</h4>
+                            <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-start;">
+                                <div class="result-container" style="flex:1;min-width:200px;position:relative;">
+                                    <div class="hash-value" id="sha512-hex">-</div>
+                                    <button class="copy-btn" onclick="copySpecific('sha512','hex')">复制</button>
+                                </div>
+                                <div class="result-container" style="flex:1;min-width:200px;position:relative;">
+                                    <div class="hash-value" id="sha512-base64">-</div>
+                                    <button class="copy-btn" onclick="copySpecific('sha512','base64')">复制</button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="hash-item">
+                            <h4>SM3</h4>
+                            <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-start;">
+                                <div class="result-container" style="flex:1;min-width:200px;position:relative;">
+                                    <div class="hash-value" id="sm3-hex">-</div>
+                                    <button class="copy-btn" onclick="copySpecific('sm3','hex')">复制</button>
+                                </div>
+                                <div class="result-container" style="flex:1;min-width:200px;position:relative;">
+                                    <div class="hash-value" id="sm3-base64">-</div>
+                                    <button class="copy-btn" onclick="copySpecific('sm3','base64')">复制</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 文件工具（自旧版文件工具 section 迁移） -->
+            <div id="page-file" class="page">
+                <div class="section">
+                    <h2>📁 文件工具</h2>
+
+                    <div class="input-group">
+                        <label>选择文件</label>
+                        <!-- 拖拽/点击二合一的文件选择区：隐藏的 input 实际负责弹出文件选择框 -->
+                        <div id="file-drop-zone" class="file-drop-zone">
+                            拖拽文件到此处，或点击选择文件
+                            <input type="file" id="file-input" style="display:none;">
+                        </div>
+                        <!-- 已选文件信息（名称/大小/类型），由 JS 填充 -->
+                        <div id="file-info" style="font-size:12px;color:#495057;background:#f8f9fa;border:1px solid #e9ecef;border-radius:6px;padding:8px 12px;word-break:break-all;line-height:1.6;"></div>
+                    </div>
+                    <div class="button-group">
+                        <button class="btn btn-primary" onclick="calculateFileHashes()">计算文件哈希</button>
+                        <button class="btn btn-secondary" onclick="convertFileToBase64()">文件 → Base64</button>
+                        <button class="btn btn-secondary" onclick="convertFileToHex()">文件 → Hex</button>
+                        <button class="btn btn-secondary" onclick="clearFileArea()">清空</button>
+                    </div>
+                    <div class="hash-results">
+                        <div class="hash-item">
+                            <h4>MD5</h4>
+                            <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-start;">
+                                <div class="result-container" style="flex:1;min-width:200px;position:relative;">
+                                    <div class="hash-value" id="file-md5-hex">-</div>
+                                    <button class="copy-btn" onclick="copySpecific('file-md5','hex')">复制</button>
+                                </div>
+                                <div class="result-container" style="flex:1;min-width:200px;position:relative;">
+                                    <div class="hash-value" id="file-md5-base64">-</div>
+                                    <button class="copy-btn" onclick="copySpecific('file-md5','base64')">复制</button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="hash-item">
+                            <h4>SHA-1</h4>
+                            <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-start;">
+                                <div class="result-container" style="flex:1;min-width:200px;position:relative;">
+                                    <div class="hash-value" id="file-sha1-hex">-</div>
+                                    <button class="copy-btn" onclick="copySpecific('file-sha1','hex')">复制</button>
+                                </div>
+                                <div class="result-container" style="flex:1;min-width:200px;position:relative;">
+                                    <div class="hash-value" id="file-sha1-base64">-</div>
+                                    <button class="copy-btn" onclick="copySpecific('file-sha1','base64')">复制</button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="hash-item">
+                            <h4>SHA-256</h4>
+                            <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-start;">
+                                <div class="result-container" style="flex:1;min-width:200px;position:relative;">
+                                    <div class="hash-value" id="file-sha256-hex">-</div>
+                                    <button class="copy-btn" onclick="copySpecific('file-sha256','hex')">复制</button>
+                                </div>
+                                <div class="result-container" style="flex:1;min-width:200px;position:relative;">
+                                    <div class="hash-value" id="file-sha256-base64">-</div>
+                                    <button class="copy-btn" onclick="copySpecific('file-sha256','base64')">复制</button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="hash-item">
+                            <h4>SHA-512</h4>
+                            <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-start;">
+                                <div class="result-container" style="flex:1;min-width:200px;position:relative;">
+                                    <div class="hash-value" id="file-sha512-hex">-</div>
+                                    <button class="copy-btn" onclick="copySpecific('file-sha512','hex')">复制</button>
+                                </div>
+                                <div class="result-container" style="flex:1;min-width:200px;position:relative;">
+                                    <div class="hash-value" id="file-sha512-base64">-</div>
+                                    <button class="copy-btn" onclick="copySpecific('file-sha512','base64')">复制</button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="hash-item">
+                            <h4>SM3</h4>
+                            <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-start;">
+                                <div class="result-container" style="flex:1;min-width:200px;position:relative;">
+                                    <div class="hash-value" id="file-sm3-hex">-</div>
+                                    <button class="copy-btn" onclick="copySpecific('file-sm3','hex')">复制</button>
+                                </div>
+                                <div class="result-container" style="flex:1;min-width:200px;position:relative;">
+                                    <div class="hash-value" id="file-sm3-base64">-</div>
+                                    <button class="copy-btn" onclick="copySpecific('file-sm3','base64')">复制</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="input-group">
+                        <label>转换结果</label>
+                        <div class="result-container">
+                            <div class="result-area" id="file-convert-result"></div>
+                            <button class="copy-btn" onclick="copyToClipboard('file-convert-result')">复制</button>
+                            <button class="btn btn-secondary" onclick="downloadFileConvertResult()">下载完整结果</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 时间戳转换：当前时间戳实时显示 + 时间戳/日期互转 -->
+            <div id="page-timestamp" class="page">
+                <!-- 当前时间戳：秒级/毫秒级大字实时显示，每秒刷新 -->
+                <div class="section">
+                    <h2>🕐 当前时间戳</h2>
+                    <div class="ts-now-grid">
+                        <div class="input-group">
+                            <label>秒级时间戳（10 位）</label>
+                            <div class="result-container">
+                                <div class="result-area ts-now" id="ts-now-sec">-</div>
+                                <button class="copy-btn" onclick="copyToClipboard('ts-now-sec')">复制</button>
+                            </div>
+                        </div>
+                        <div class="input-group">
+                            <label>毫秒级时间戳（13 位）</label>
+                            <div class="result-container">
+                                <div class="result-area ts-now" id="ts-now-ms">-</div>
+                                <button class="copy-btn" onclick="copyToClipboard('ts-now-ms')">复制</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 时间戳 → 日期：按位数自动识别秒级/毫秒级 -->
+                <div class="section">
+                    <h2>时间戳 → 日期</h2>
+                    <div class="input-group">
+                        <label>时间戳</label>
+                        <input type="text" id="ts-input" placeholder="输入时间戳，支持 10 位秒级（如 1700000000）或 13 位毫秒级（如 1700000000000），按位数自动识别">
+                    </div>
+                    <div class="button-group">
+                        <button class="btn btn-primary" onclick="tsConvertToDate()">转换</button>
+                        <button class="btn btn-secondary" onclick="tsSetNow()">现在</button>
+                        <button class="btn btn-secondary" onclick="tsClear()">清空</button>
+                    </div>
+                    <div class="input-group">
+                        <label>转换结果</label>
+                        <div class="result-container">
+                            <div class="result-area" id="ts-to-date-result"></div>
+                            <button class="copy-btn" onclick="copyToClipboard('ts-to-date-result')">复制</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 日期 → 时间戳：datetime-local 选择本地时间（默认值由 js/timestamp.js 填入当前时间） -->
+                <div class="section">
+                    <h2>日期 → 时间戳</h2>
+                    <div class="input-group">
+                        <label>日期时间（本地时区，默认为当前时间）</label>
+                        <input type="datetime-local" id="ts-datetime" step="1">
+                    </div>
+                    <div class="button-group">
+                        <button class="btn btn-primary" onclick="tsConvertToTimestamp()">转换</button>
+                    </div>
+                    <div class="input-group">
+                        <label>转换结果</label>
+                        <div id="ts-to-ts-result">
+                            <div class="ts-out-item">
+                                <div class="ts-out-label">秒级（10 位）</div>
+                                <div class="result-container">
+                                    <div class="result-area" id="ts-out-sec"></div>
+                                    <button class="copy-btn" onclick="copyToClipboard('ts-out-sec')">复制</button>
+                                </div>
+                            </div>
+                            <div class="ts-out-item">
+                                <div class="ts-out-label">毫秒级（13 位）</div>
+                                <div class="result-container">
+                                    <div class="result-area" id="ts-out-ms"></div>
+                                    <button class="copy-btn" onclick="copyToClipboard('ts-out-ms')">复制</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- JWT 工具：解码（任意算法展示）/ 签发（HS256）/ 验证（HS256） -->
+            <div id="page-jwt" class="page">
+                <!-- 解码：按 JWT 结构展示 header / payload / signature 与时间字段（不校验签名） -->
+                <div class="section">
+                    <h2>🔍 JWT 解码</h2>
+                    <div class="input-group">
+                        <label>JWT 字符串</label>
+                        <textarea id="jwt-decode-input" placeholder="粘贴 JWT，形如 eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOi...（header.payload.signature 三段以 . 分隔）"></textarea>
+                    </div>
+                    <div class="button-group">
+                        <button class="btn btn-primary" onclick="jwtDecode()">解码 JWT</button>
+                    </div>
+                    <div class="input-group">
+                        <label>Header 头部（base64url 解码后的 JSON，含 alg/typ 标注）</label>
+                        <div class="result-container">
+                            <div class="result-area" id="jwt-header"></div>
+                            <button class="copy-btn" onclick="copyToClipboard('jwt-header')">复制</button>
+                        </div>
+                    </div>
+                    <div class="input-group">
+                        <label>Payload 载荷（base64url 解码后的 JSON）</label>
+                        <div class="result-container">
+                            <div class="result-area" id="jwt-payload"></div>
+                            <button class="copy-btn" onclick="copyToClipboard('jwt-payload')">复制</button>
+                        </div>
+                    </div>
+                    <div class="input-group">
+                        <label>Signature 签名（base64url 原串 + 空格分组 Hex 大写）</label>
+                        <div class="result-container">
+                            <div class="result-area" id="jwt-signature"></div>
+                            <button class="copy-btn" onclick="copyToClipboard('jwt-signature')">复制</button>
+                        </div>
+                    </div>
+                    <div class="input-group">
+                        <label>时间字段说明（exp / iat / nbf 人性化显示）</label>
+                        <div class="result-container">
+                            <div class="result-area" id="jwt-time-info">解码后若 payload 含数值型的 exp / iat / nbf，此处显示对应的标准时间与相对描述</div>
+                            <button class="copy-btn" onclick="copyToClipboard('jwt-time-info')">复制</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 签发：HS256 对称签名（Web Crypto HMAC-SHA256） -->
+                <div class="section">
+                    <h2>✍️ JWT 签发（HS256）</h2>
+                    <div class="input-group">
+                        <label>Payload 载荷（必须是合法 JSON 对象）</label>
+                        <textarea id="jwt-payload-input" placeholder='payload 必须是合法 JSON 对象；iat = 签发时间、exp = 过期时间，均为秒级时间戳数字。示例：{"sub":"user001","name":"测试用户","iat":1700000000,"exp":1900000000}'>{"sub":"user001","name":"测试用户","iat":,"exp":}</textarea>
+                        <p class="jwt-hint">模板中 iat / exp 已留空待填写：iat = 签发时间（当前秒级时间戳约 <span id="jwt-now-sec-hint">-</span>），exp = 过期时间（应大于 iat），可到"时间戳转换"页获取。</p>
+                    </div>
+                    <div class="input-group">
+                        <label>密钥（HS256 对称密钥）</label>
+                        <input type="text" id="jwt-secret" placeholder="输入 HMAC-SHA256 签名密钥" autocomplete="off">
+                    </div>
+                    <div class="button-group">
+                        <button class="btn btn-primary" onclick="jwtSign()">签发 JWT（HS256）</button>
+                    </div>
+                    <div class="input-group">
+                        <label>签发结果</label>
+                        <div class="result-container">
+                            <div class="result-area" id="jwt-encode-result"></div>
+                            <button class="copy-btn" onclick="copyToClipboard('jwt-encode-result')">复制</button>
+                        </div>
+                    </div>
+                    <p class="jwt-hint">🔒 所有计算均在本地浏览器完成，密钥不会离开本机。</p>
+                </div>
+
+                <!-- 验证：HS256 重算签名与第三段比对 + exp 检查 -->
+                <div class="section">
+                    <h2>🛡️ JWT 验证（HS256）</h2>
+                    <div class="input-group">
+                        <label>JWT 字符串</label>
+                        <textarea id="jwt-verify-input" placeholder="粘贴待验证的 JWT（header.payload.signature 三段以 . 分隔）"></textarea>
+                    </div>
+                    <div class="input-group">
+                        <label>密钥（须与签发时一致）</label>
+                        <input type="text" id="jwt-verify-secret" placeholder="输入 HMAC-SHA256 签名密钥" autocomplete="off">
+                    </div>
+                    <div class="button-group">
+                        <button class="btn btn-primary" onclick="jwtVerify()">验证签名</button>
+                    </div>
+                    <div class="input-group">
+                        <label>验证结果</label>
+                        <div class="result-container">
+                            <div class="result-area" id="jwt-verify-result"></div>
+                            <button class="copy-btn" onclick="copyToClipboard('jwt-verify-result')">复制</button>
+                        </div>
+                    </div>
+                    <p class="jwt-hint">🔒 所有计算均在本地浏览器完成，密钥不会离开本机。</p>
+                </div>
+            </div>
+
+            <!-- ASCII 码表：0-255 对照表 + 搜索过滤 + 点击行复制 -->
+            <div id="page-ascii" class="page">
+                <div class="section">
+                    <h2>📋 ASCII 码表</h2>
+                    <div class="input-group">
+                        <label>搜索</label>
+                        <input type="text" id="ascii-search" placeholder="按字符/十进制/十六进制/名称搜索，如 A、65、0x41、DEL">
+                    </div>
+                    <div class="encoding-selector">
+                        <label style="margin-right: 20px; font-weight: bold; color: #333;">码位范围：</label>
+                        <label><input type="radio" name="ascii-range" value="std" checked><span>标准区（0-127）</span></label>
+                        <label><input type="radio" name="ascii-range" value="ext"><span>扩展区（128-255）</span></label>
+                        <label><input type="radio" name="ascii-range" value="all"><span>全部（0-255）</span></label>
+                    </div>
+                    <!-- 表格行由 js/ascii.js 按范围 + 搜索词动态生成（最多 256 行） -->
+                    <div class="ascii-table-wrap" id="ascii-table-container"></div>
+                    <p class="tool-hint">💡 点击任意行可复制该码位的复合文本（如 0x41 (A)、0x7F (DEL)）；控制字符行底色为浅灰；128-159 为 CP1252 重排区，字符列按 Unicode 码位原样显示。</p>
+                </div>
+            </div>
+
+            <!-- JSON 工具：格式化/压缩/校验/字符串字面量转义互转 -->
+            <div id="page-json" class="page">
+                <div class="section">
+                    <h2>🗂️ JSON 工具</h2>
+                    <div class="input-group">
+                        <label>输入 JSON</label>
+                        <textarea id="json-input" placeholder="输入 JSON 文本..."></textarea>
+                    </div>
+                    <div class="encoding-selector">
+                        <label style="margin-right: 20px; font-weight: bold; color: #333;">缩进：</label>
+                        <label><input type="radio" name="json-indent" value="2" checked><span>2 空格</span></label>
+                        <label><input type="radio" name="json-indent" value="4"><span>4 空格</span></label>
+                        <label><input type="radio" name="json-indent" value="8"><span>8 空格</span></label>
+                        <label><input type="checkbox" id="json-unicode"><span>中文转 \uXXXX 转义显示</span></label>
+                    </div>
+                    <div class="button-group">
+                        <button class="btn btn-primary" onclick="jsonFormat()">格式化</button>
+                        <button class="btn btn-primary" onclick="jsonMinify()">压缩</button>
+                        <button class="btn btn-primary" onclick="jsonValidate()">校验</button>
+                        <button class="btn btn-primary" onclick="jsonEscape()">转义为字符串字面量</button>
+                        <button class="btn btn-primary" onclick="jsonUnescape()">去转义</button>
+                        <button class="btn btn-secondary" onclick="jsonClear()">清空</button>
+                    </div>
+                    <div class="input-group">
+                        <label>结果</label>
+                        <div class="result-container">
+                            <div class="result-area" id="json-result"></div>
+                            <button class="copy-btn" onclick="copyToClipboard('json-result')">复制</button>
+                        </div>
+                    </div>
+                    <p class="tool-hint">💡 "转义为字符串字面量"把整个输入变成可嵌入代码的字符串（如 {"a":1} → {\"a\":1}），"去转义"为其逆操作；解析失败时会尽量定位错误行/列。</p>
+                </div>
+            </div>
+
+        </div>
+    </main>
+
+    <div class="notification" id="notification">已复制到剪贴板</div>
+
+    <!-- 第三方库（普通 script 标签，file:// 协议直接可用） -->
+    <script src="js/vendor/crypto-js.js"></script>
+    <script src="js/vendor/gbk.js"></script>
+    <script src="js/vendor/sm3.js"></script>
+    <!-- 主逻辑（必须在 vendor 之后加载） -->
+    <script src="js/app.js"></script>
+    <!-- 页面功能脚本（在 app.js 之后加载，函数挂全局供 onclick 调用） -->
+    <script src="js/timestamp.js"></script>
+    <script src="js/jwt.js"></script>
+    <!-- 页面功能脚本：ASCII 码表 / JSON 工具 -->
+    <script src="js/ascii.js"></script>
+    <script src="js/jsontool.js"></script>
+</body>
+</html>
