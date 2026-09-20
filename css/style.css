@@ -837,3 +837,255 @@ body {
 #json-result {
     min-height: 120px;
 }
+
+/* ============================================================
+   图片 Base64 页 / 年龄计算页 新增样式
+   （复用 .section/.input-group/.button-group/.result-area/.copy-btn
+     /.file-drop-zone 等既有类，此处仅补充两页特有的展示样式）
+   ============================================================ */
+
+/* ---------- 图片 Base64 页 ---------- */
+
+/* 图片预览容器：白底圆角，预览图与宽高/大小说明并排（窄屏自动换行） */
+.img-preview-box {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    flex-wrap: wrap;
+    background: white;
+    border: 2px solid #e9ecef;
+    border-radius: 8px;
+    padding: 12px;
+    min-height: 20px;
+}
+
+/* 预览图旁的宽高/大小/格式说明文字 */
+.img-dim-text {
+    font-size: 12px;
+    color: #868e96;
+    line-height: 1.8;
+    word-break: break-all;
+}
+
+/* Base64 结果区：长串已由 .result-area 换行，缩小默认最小高度 */
+#img-b64-result {
+    min-height: 120px;
+}
+
+/* CSS / HTML 用法示例区：单行即可 */
+#img-css-hint {
+    min-height: 0;
+}
+
+/* ---------- 年龄计算页 ---------- */
+
+/* 日期输入框：与文本输入框同款边框风格 */
+.input-group input[type="date"] {
+    width: 100%;
+    max-width: 260px;
+    padding: 10px;
+    border: 2px solid #e9ecef;
+    border-radius: 6px;
+    font-size: 14px;
+    background: white;
+    box-sizing: border-box;
+    transition: border-color 0.3s;
+}
+
+.input-group input[type="date"]:focus {
+    outline: none;
+    border-color: #667eea;
+}
+
+/* 年龄结果区：多行文本按换行符显示 */
+#age-result {
+    min-height: 160px;
+}
+
+/* ---------- 二维码工具页 ---------- */
+
+/* 生成结果容器：浅灰背景 + 内边距居中，SVG 注入后自适应缩放不溢出 */
+.qr-display {
+    background: #f8f9fa;
+    border: 2px solid #e9ecef;
+    border-radius: 8px;
+    padding: 16px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 140px;
+    color: #6c757d;
+    font-size: 13px;
+    overflow: auto;
+    box-sizing: border-box;
+}
+
+.qr-display svg {
+    max-width: 100%;
+    height: auto;
+    display: block;
+}
+
+/* 生成信息行：模块数 / 版本 / 字符数（生成前由 JS 隐藏） */
+.qr-info {
+    display: none;
+    font-size: 12px;
+    color: #495057;
+    background: #f8f9fa;
+    border: 1px solid #e9ecef;
+    border-radius: 6px;
+    padding: 8px 12px;
+    margin-top: 8px;
+    line-height: 1.6;
+    word-break: break-all;
+    box-sizing: border-box;
+}
+
+/* 识别结果：多行长文本按换行符显示 */
+#qr-recognize-result {
+    white-space: pre-wrap;
+    word-break: break-all;
+}
+
+/* 识别结果为 URL 时的附加链接行 */
+.qr-link-box {
+    margin-top: 8px;
+    font-size: 13px;
+    color: #495057;
+    word-break: break-all;
+    line-height: 1.6;
+}
+
+.qr-link-box a {
+    color: #667eea;
+}
+
+/* ============================================================
+   GitHub 热榜页新增样式
+   （复用 .section/.encoding-selector/.button-group/.btn-primary 等
+     既有类，此处仅补充本页特有的展示样式）
+   ============================================================ */
+
+/* 顶部灰色小字说明：本页为唯一联网功能 */
+.gh-note {
+    font-size: 12px;
+    color: #868e96;
+    line-height: 1.6;
+    margin: -6px 0 10px;
+}
+
+/* 语言下拉框：select 的既有样式只作用于 .input-group 内，这里补齐同款风格 */
+#gh-language {
+    padding: 4px 10px;
+    border: 1px solid #e9ecef;
+    border-radius: 4px;
+    background: white;
+    font-family: inherit;
+    font-size: 0.85em;
+    color: #495057;
+    cursor: pointer;
+    transition: border-color 0.3s;
+}
+
+#gh-language:focus {
+    outline: none;
+    border-color: #667eea;
+}
+
+/* 状态行：获取中 / 结果统计为深灰小字，错误时由 gh-status-error 变红 */
+.gh-status {
+    font-size: 12px;
+    color: #495057;
+    line-height: 1.6;
+    margin: 4px 0 10px;
+}
+
+.gh-status.gh-status-error {
+    color: #dc3545;
+}
+
+/* 结果卡片列表：纵向排列；默认灰色小字用于初始占位提示 */
+.gh-result {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    color: #868e96;
+    font-size: 13px;
+}
+
+/* 仓库卡片：白底圆角边框，hover 时阴影浮起 */
+.gh-card {
+    background: white;
+    border: 1px solid #e9ecef;
+    border-radius: 8px;
+    padding: 12px 14px;
+    color: #495057;
+    font-size: 14px;
+    transition: border-color 0.25s, box-shadow 0.25s;
+}
+
+.gh-card:hover {
+    border-color: rgba(102, 126, 234, 0.45);
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.1);
+}
+
+/* 标题行：排名序号 + 仓库名链接 */
+.gh-card-title {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 6px;
+}
+
+.gh-rank {
+    flex-shrink: 0;
+    font-size: 12px;
+    font-weight: 600;
+    color: #868e96;
+}
+
+/* 仓库名链接：主题色加粗 */
+.gh-card-title a {
+    color: #667eea;
+    font-weight: 600;
+    text-decoration: none;
+    word-break: break-all;
+}
+
+.gh-card-title a:hover {
+    text-decoration: underline;
+}
+
+/* 描述行 */
+.gh-card-desc {
+    font-size: 13px;
+    color: #495057;
+    line-height: 1.6;
+    word-break: break-word;
+    margin-bottom: 6px;
+}
+
+/* 元信息行：星数 / forks / 语言色点 / 创建日期（小字灰色） */
+.gh-card-meta {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 6px;
+    font-size: 12px;
+    color: #868e96;
+}
+
+/* 语言名 + 前置色点 */
+.gh-lang {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.gh-lang-dot {
+    display: inline-block;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    flex-shrink: 0;
+}

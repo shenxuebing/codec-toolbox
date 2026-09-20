@@ -25,10 +25,14 @@
             <button type="button" class="menu-item" data-page="page-jwt"><span class="menu-icon">🔑</span><span class="menu-text">JWT 工具</span></button>
             <button type="button" class="menu-item" data-page="page-ascii"><span class="menu-icon">📋</span><span class="menu-text">ASCII 码表</span></button>
             <button type="button" class="menu-item" data-page="page-json"><span class="menu-icon">🗂️</span><span class="menu-text">JSON 工具</span></button>
+            <button type="button" class="menu-item" data-page="page-image"><span class="menu-icon">🖼️</span><span class="menu-text">图片 Base64</span></button>
+            <button type="button" class="menu-item" data-page="page-age"><span class="menu-icon">🎂</span><span class="menu-text">年龄计算</span></button>
+            <button type="button" class="menu-item" data-page="page-qrcode"><span class="menu-icon">📡</span><span class="menu-text">二维码工具</span></button>
+            <button type="button" class="menu-item" data-page="page-github"><span class="menu-icon">🔥</span><span class="menu-text">GitHub 热榜</span></button>
         </nav>
     </aside>
 
-    <!-- 右侧主内容区：11 个功能页面，同一时刻只显示一个 -->
+    <!-- 右侧主内容区：13 个功能页面，同一时刻只显示一个 -->
     <main class="main-area">
         <div class="container">
 
@@ -591,6 +595,208 @@
                 </div>
             </div>
 
+            <!-- 图片 Base64：图片 → Base64 编码 与 Base64 → 图片预览/下载 -->
+            <div id="page-image" class="page">
+                <!-- Section 1：图片 → Base64（拖拽/点击选择，Data URI 与纯 Base64 两种输出） -->
+                <div class="section">
+                    <h2>🖼️ 图片 → Base64</h2>
+                    <div class="input-group">
+                        <label>选择图片</label>
+                        <!-- 拖拽/点击二合一的图片选择区：隐藏的 input 实际负责弹出文件选择框 -->
+                        <div id="img-drop-zone" class="file-drop-zone">
+                            拖拽图片到此处，或点击选择图片
+                            <input type="file" id="img-file-input" accept="image/*" style="display:none;">
+                        </div>
+                        <!-- 已选图片信息（名称/大小/类型），由 JS 填充 -->
+                        <div id="img-info" style="font-size:12px;color:#495057;background:#f8f9fa;border:1px solid #e9ecef;border-radius:6px;padding:8px 12px;word-break:break-all;line-height:1.6;"></div>
+                    </div>
+                    <div class="input-group">
+                        <label>图片预览</label>
+                        <div class="img-preview-box">
+                            <img id="img-preview" alt="图片预览" style="max-width:280px;max-height:200px;display:none;">
+                            <div id="img-dimension" class="img-dim-text">选择图片后此处显示预览与宽高</div>
+                        </div>
+                    </div>
+                    <div class="encoding-selector">
+                        <label style="margin-right: 20px; font-weight: bold; color: #333;">输出格式：</label>
+                        <label><input type="radio" name="img-b64-mode" value="data-uri" checked><span>Data URI（含 data:image/... 前缀）</span></label>
+                        <label><input type="radio" name="img-b64-mode" value="raw"><span>纯 Base64 字符串</span></label>
+                    </div>
+                    <div class="input-group">
+                        <label>Base64 结果（超过 10 万字符界面截断显示，可复制完整结果）</label>
+                        <div class="result-container">
+                            <div class="result-area" id="img-b64-result"></div>
+                            <button class="copy-btn" onclick="imgCopyFullResult()">复制完整结果</button>
+                        </div>
+                    </div>
+                    <div class="input-group">
+                        <label>CSS / HTML 用法示例（长串截断显示）</label>
+                        <div class="result-area" id="img-css-hint">选择图片并转换后，此处按所选格式显示可直接复制使用的示例代码</div>
+                    </div>
+                </div>
+
+                <!-- Section 2：Base64 → 图片（粘贴/输入，预览宽高大小格式并下载） -->
+                <div class="section">
+                    <h2>🖼️ Base64 → 图片</h2>
+                    <div class="input-group">
+                        <label>Base64 / Data URI 输入</label>
+                        <textarea id="img-b64-input" placeholder="粘贴 Base64 或 Data URI 字符串；在本页任意位置 Ctrl+V 粘贴图片文件可直接预览"></textarea>
+                    </div>
+                    <div class="button-group">
+                        <button class="btn btn-primary" onclick="imgPreviewFromBase64()">预览图片</button>
+                        <button class="btn btn-secondary" onclick="imgDownloadImage()">下载图片</button>
+                        <button class="btn btn-secondary" onclick="imgClear()">清空</button>
+                    </div>
+                    <div class="input-group">
+                        <label>图片预览</label>
+                        <div class="img-preview-box">
+                            <img id="img-b64-preview" alt="Base64 图片预览" style="max-width:280px;max-height:200px;display:none;">
+                            <div id="img-b64-dimension" class="img-dim-text">预览成功后此处显示宽高、字节大小与格式</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 年龄计算：周岁（日历借位）/ 总生存 / 下次生日 / 生肖 / 星座 -->
+            <div id="page-age" class="page">
+                <div class="section">
+                    <h2>🎂 年龄计算</h2>
+                    <div class="input-group">
+                        <label>出生日期（必填）</label>
+                        <input type="date" id="age-birth">
+                    </div>
+                    <div class="input-group">
+                        <label>计算基准日期（留空 = 今天）</label>
+                        <input type="date" id="age-target">
+                    </div>
+                    <div class="button-group">
+                        <button class="btn btn-primary" onclick="ageCalculate()">计算年龄</button>
+                        <button class="btn btn-secondary" onclick="ageSetNow()">现在</button>
+                    </div>
+                    <div class="input-group">
+                        <label>计算结果</label>
+                        <div class="result-container">
+                            <div class="result-area" id="age-result"></div>
+                            <button class="copy-btn" onclick="copyToClipboard('age-result')">复制</button>
+                        </div>
+                    </div>
+                    <p class="tool-hint">💡 周岁按日历逐月借位计算（非除法近似）；总天数为出生当天 00:00 至基准日 00:00 的整天数；闰年 2 月 29 日出生者，非闰年生日按 3 月 1 日计算；生肖按公历出生年份判定。</p>
+                </div>
+            </div>
+
+            <!-- 二维码工具：生成（文本 → 二维码 SVG/PNG）与识别（图片 → 文本） -->
+            <div id="page-qrcode" class="page">
+                <!-- Section 1：生成二维码（qrcode-generator 库，typeNumber 0 自动适配版本） -->
+                <div class="section">
+                    <h2>📡 生成二维码</h2>
+                    <div class="input-group">
+                        <label>输入内容</label>
+                        <textarea id="qr-text-input" placeholder="输入要生成二维码的内容（网址/文本/名片等），最多支持约 2000 字符"></textarea>
+                    </div>
+                    <div class="encoding-selector">
+                        <label style="margin-right: 20px; font-weight: bold; color: #333;">尺寸：</label>
+                        <label><input type="radio" name="qr-size" value="128"><span>128px</span></label>
+                        <label><input type="radio" name="qr-size" value="256" checked><span>256px</span></label>
+                        <label><input type="radio" name="qr-size" value="384"><span>384px</span></label>
+                    </div>
+                    <div class="encoding-selector">
+                        <label style="margin-right: 20px; font-weight: bold; color: #333;">纠错级别：</label>
+                        <label><input type="radio" name="qr-ecc" value="L"><span>L (7%)</span></label>
+                        <label><input type="radio" name="qr-ecc" value="M" checked><span>M (15%)</span></label>
+                        <label><input type="radio" name="qr-ecc" value="Q"><span>Q (25%)</span></label>
+                        <label><input type="radio" name="qr-ecc" value="H"><span>H (30%)</span></label>
+                    </div>
+                    <div class="button-group">
+                        <button class="btn btn-primary" onclick="qrGenerate()">生成二维码</button>
+                        <button class="btn btn-secondary" onclick="qrClear()">清空</button>
+                    </div>
+                    <div class="input-group">
+                        <label>二维码</label>
+                        <!-- SVG 由 js/qrcode.js 通过 innerHTML 注入（库生成的固定结构，不含用户原文） -->
+                        <div class="qr-display" id="qr-code-display">点击"生成二维码"后此处显示二维码</div>
+                        <!-- 信息行：模块数 / 版本 / 字符数（生成前隐藏，由 JS 显示） -->
+                        <div id="qr-info" class="qr-info"></div>
+                    </div>
+                    <div class="button-group">
+                        <button class="btn btn-secondary" onclick="qrDownloadPng()">下载 PNG</button>
+                        <button class="btn btn-secondary" onclick="qrDownloadSvg()">下载 SVG</button>
+                    </div>
+                </div>
+
+                <!-- Section 2：识别二维码（jsQR 库，纯本地像素分析） -->
+                <div class="section">
+                    <h2>📡 识别二维码</h2>
+                    <div class="input-group">
+                        <label>选择二维码图片</label>
+                        <!-- 拖拽/点击二合一的图片选择区：隐藏的 input 实际负责弹出文件选择框 -->
+                        <div id="qr-drop-zone" class="file-drop-zone">
+                            拖拽二维码图片到此处，或点击选择图片
+                            <input type="file" id="qr-file-input" accept="image/*" style="display:none;">
+                        </div>
+                        <p class="tool-hint">💡 或直接 Ctrl+V 粘贴二维码图片（本页激活时生效）。</p>
+                    </div>
+                    <div class="input-group">
+                        <label>图片预览</label>
+                        <img id="qr-image-preview" alt="二维码图片预览" style="max-height:160px;display:none;">
+                    </div>
+                    <div class="button-group">
+                        <button class="btn btn-primary" onclick="qrRecognize()">识别二维码</button>
+                        <button class="btn btn-secondary" onclick="qrClearRecognize()">清空</button>
+                    </div>
+                    <div class="input-group">
+                        <label>识别结果</label>
+                        <div class="result-container">
+                            <div class="result-area" id="qr-recognize-result"></div>
+                            <button class="copy-btn" onclick="copyToClipboard('qr-recognize-result')">复制</button>
+                        </div>
+                        <!-- 识别内容是 URL 时额外显示可点击链接（DOM API 构建，防注入） -->
+                        <div id="qr-recognize-link" class="qr-link-box" style="display:none;"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- GitHub 热榜：本工具唯一联网页（调用 GitHub 公开 search API，其余工具均离线可用） -->
+            <div id="page-github" class="page">
+                <div class="section">
+                    <h2>🔥 GitHub 热榜</h2>
+                    <!-- 顶部说明：提醒本页为唯一联网功能 -->
+                    <p class="gh-note">此功能需要联网获取 GitHub 公开数据，其余工具均离线可用</p>
+                    <div class="encoding-selector">
+                        <label style="margin-right: 20px; font-weight: bold; color: #333;">时间范围：</label>
+                        <label><input type="radio" name="gh-range" value="today"><span>最近 1 天</span></label>
+                        <label><input type="radio" name="gh-range" value="week" checked><span>最近 7 天</span></label>
+                        <label><input type="radio" name="gh-range" value="month"><span>最近 30 天</span></label>
+                        <label><input type="radio" name="gh-range" value="all"><span>总榜</span></label>
+                    </div>
+                    <div class="encoding-selector">
+                        <label style="margin-right: 20px; font-weight: bold; color: #333;">语言：</label>
+                        <!-- C++/C# 的 value 存 URL 编码形式（C%2B%2B / C%23），由 js/github.js 解码后再拼查询参数 -->
+                        <select id="gh-language">
+                            <option value="">全部</option>
+                            <option value="JavaScript">JavaScript</option>
+                            <option value="TypeScript">TypeScript</option>
+                            <option value="Python">Python</option>
+                            <option value="Java">Java</option>
+                            <option value="C%2B%2B">C++</option>
+                            <option value="C%23">C#</option>
+                            <option value="Go">Go</option>
+                            <option value="Rust">Rust</option>
+                            <option value="Vue">Vue</option>
+                            <option value="HTML">HTML</option>
+                            <option value="CSS">CSS</option>
+                            <option value="Shell">Shell</option>
+                        </select>
+                    </div>
+                    <div class="button-group">
+                        <button class="btn btn-primary" onclick="ghFetchTrending()">获取热榜</button>
+                    </div>
+                    <!-- 状态行：获取中 / 分级错误提示 / 结果统计（初始隐藏，由 JS 控制显示） -->
+                    <div id="gh-status" class="gh-status" style="display:none;"></div>
+                    <!-- 卡片列表由 js/github.js 用 DOM API 构建（textContent 渲染，不拼 HTML） -->
+                    <div id="gh-result" class="gh-result">点击"获取热榜"后此处显示仓库卡片列表</div>
+                </div>
+            </div>
+
         </div>
     </main>
 
@@ -608,5 +814,14 @@
     <!-- 页面功能脚本：ASCII 码表 / JSON 工具 -->
     <script src="js/ascii.js"></script>
     <script src="js/jsontool.js"></script>
+    <!-- 页面功能脚本：图片 Base64 / 年龄计算 -->
+    <script src="js/imgtool.js"></script>
+    <script src="js/age.js"></script>
+    <!-- 二维码工具第三方库（qrcode-generator 生成 / jsQR 识别）与页面脚本 -->
+    <script src="js/vendor/qrcode-generator.min.js"></script>
+    <script src="js/vendor/jsqr.min.js"></script>
+    <script src="js/qrcode.js"></script>
+    <!-- GitHub 热榜页脚本（唯一联网功能，仅用户点击"获取热榜"时才请求 GitHub 公开 API） -->
+    <script src="js/github.js"></script>
 </body>
 </html>
