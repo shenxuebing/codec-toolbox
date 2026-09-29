@@ -20,6 +20,7 @@
             <button type="button" class="menu-item" data-page="page-unicode"><span class="menu-icon">🇺🇳</span><span class="menu-text">Unicode 转换</span></button>
             <button type="button" class="menu-item" data-page="page-random"><span class="menu-icon">🎲</span><span class="menu-text">随机字节</span></button>
             <button type="button" class="menu-item" data-page="page-hash"><span class="menu-icon">🔒</span><span class="menu-text">哈希计算</span></button>
+            <button type="button" class="menu-item" data-page="page-gmsm"><span class="menu-icon">🛡️</span><span class="menu-text">国密 SM2/SM4</span></button>
             <button type="button" class="menu-item" data-page="page-file"><span class="menu-icon">📁</span><span class="menu-text">文件工具</span></button>
             <button type="button" class="menu-item" data-page="page-timestamp"><span class="menu-icon">🕐</span><span class="menu-text">时间戳转换</span></button>
             <button type="button" class="menu-item" data-page="page-jwt"><span class="menu-icon">🔑</span><span class="menu-text">JWT 工具</span></button>
@@ -267,6 +268,202 @@
                             </div>
                         </div>
                     </div>
+                </div>
+            </div>
+
+            <!-- 国密 SM2/SM4：SM4 加解密 / SM2 密钥与加解密 / SM2 签名验签（sm-crypto 0.3.2 本地化） -->
+            <div id="page-gmsm" class="page">
+                <!-- Section 1：SM4 加解密（ECB/CBC × PKCS7/无填充，多输入输出格式） -->
+                <div class="section">
+                    <h2>🛡️ SM4 加解密</h2>
+                    <div class="input-group">
+                        <label>输入内容（加密时为明文，解密时为密文）</label>
+                        <textarea id="sm4-input" placeholder="加密：输入明文（按下方“输入格式”解释）；解密：输入密文。国标向量自测：ECB + 无填充 + 密钥/明文均为 0123456789abcdeffedcba9876543210（Hex）→ 密文 681edf34d206965e86b3e94f536e4246"></textarea>
+                    </div>
+                    <div class="encoding-selector">
+                        <label style="margin-right: 12px; font-weight: bold; color: #333;">模式：</label>
+                        <label><input type="radio" name="sm4-mode" value="ecb" checked onchange="sm4ModeChanged()"><span>ECB</span></label>
+                        <label><input type="radio" name="sm4-mode" value="cbc" onchange="sm4ModeChanged()"><span>CBC</span></label>
+                        <label style="margin-right: 12px; margin-left: 20px; font-weight: bold; color: #333;">填充：</label>
+                        <label><input type="radio" name="sm4-padding" value="pkcs#5" checked><span>PKCS7</span></label>
+                        <label><input type="radio" name="sm4-padding" value="none"><span>无填充</span></label>
+                    </div>
+                    <div class="encoding-selector">
+                        <label style="margin-right: 12px; font-weight: bold; color: #333;">密钥：</label>
+                        <input type="text" id="sm4-key" placeholder="32 位 Hex 密钥，如 0123456789abcdeffedcba9876543210" autocomplete="off">
+                        <button type="button" class="btn btn-secondary" onclick="sm4GenKey()">生成随机密钥</button>
+                    </div>
+                    <!-- IV 行：仅在 CBC 模式显示（sm4ModeChanged 切换 display） -->
+                    <div class="encoding-selector" id="sm4-iv-row" style="display:none;">
+                        <label style="margin-right: 12px; font-weight: bold; color: #333;">IV：</label>
+                        <input type="text" id="sm4-iv" placeholder="32 位 Hex IV，如 000102030405060708090a0b0c0d0e0f" autocomplete="off">
+                        <button type="button" class="btn btn-secondary" onclick="sm4GenIv()">生成随机 IV</button>
+                    </div>
+                    <div class="encoding-selector">
+                        <label style="margin-right: 12px; font-weight: bold; color: #333;">输入格式：</label>
+                        <label><input type="radio" name="sm4-input-format" value="text" checked><span>文本(UTF-8)</span></label>
+                        <label><input type="radio" name="sm4-input-format" value="hex"><span>Hex</span></label>
+                        <label><input type="radio" name="sm4-input-format" value="base64"><span>Base64</span></label>
+                        <label style="margin-right: 12px; margin-left: 20px; font-weight: bold; color: #333;">输出格式：</label>
+                        <label><input type="radio" name="sm4-output-format" value="text"><span>文本(UTF-8)，仅解密</span></label>
+                        <label><input type="radio" name="sm4-output-format" value="hex" checked><span>Hex</span></label>
+                        <label><input type="radio" name="sm4-output-format" value="base64"><span>Base64</span></label>
+                    </div>
+                    <div class="button-group">
+                        <button type="button" class="btn btn-primary" onclick="sm4DoEncrypt()">加密</button>
+                        <button type="button" class="btn btn-primary" onclick="sm4DoDecrypt()">解密</button>
+                        <button type="button" class="btn btn-secondary" onclick="sm4Clear()">清空</button>
+                    </div>
+                    <div class="input-group">
+                        <label>结果</label>
+                        <div class="result-container">
+                            <div class="result-area" id="sm4-result"></div>
+                            <button class="copy-btn" onclick="copyToClipboard('sm4-result')">复制</button>
+                        </div>
+                    </div>
+                    <p class="tool-hint">💡 解密时"输入格式"指密文格式（选"文本"按 Hex 处理）；"文本(UTF-8)"输出仅解密可用，加密输出恒为二进制（Hex/Base64）。无填充时数据长度必须是 16 字节的整数倍。密钥/IV 均为 32 位 Hex。</p>
+
+                    <!-- SM3 摘要顺手一行：文本或 Hex 输入 → 64 位 Hex 摘要 -->
+                    <div class="encoding-selector" style="margin-top: 14px;">
+                        <label style="margin-right: 12px; font-weight: bold; color: #333;">SM3 摘要：</label>
+                        <input type="text" id="sm3-input" placeholder="输入文本或 Hex（按右侧格式解释）" autocomplete="off">
+                        <label><input type="radio" name="sm3-format" value="text" checked><span>文本</span></label>
+                        <label><input type="radio" name="sm3-format" value="hex"><span>Hex</span></label>
+                        <button type="button" class="btn btn-primary" onclick="sm3Calc()">计算 SM3</button>
+                    </div>
+                    <div class="result-container">
+                        <div class="result-area gm-oneline" id="sm3-result">输入内容并点击"计算 SM3"后此处显示 64 位 Hex 摘要</div>
+                        <button class="copy-btn" onclick="copyToClipboard('sm3-result')">复制</button>
+                    </div>
+                </div>
+
+                <!-- Section 2：SM2 密钥对生成 / PEM 提取 / 加解密 -->
+                <div class="section">
+                    <h2>🔑 SM2 密钥与加解密</h2>
+                    <div class="button-group">
+                        <button type="button" class="btn btn-primary" onclick="sm2GenPair()">生成密钥对</button>
+                    </div>
+                    <div class="input-group">
+                        <label>私钥（64 位 Hex；解密 / 签名使用，可粘贴自己的私钥）</label>
+                        <div class="gm-key-row">
+                            <input type="text" id="sm2-privkey" placeholder="64 位 Hex 私钥，如 3f2d...（点击“生成密钥对”自动填充）" autocomplete="off">
+                            <button type="button" class="btn btn-secondary" onclick="gmCopyInput('sm2-privkey')">复制</button>
+                        </div>
+                    </div>
+                    <div class="input-group">
+                        <label>公钥（130 位 Hex，04 开头；加密 / 验签使用，可粘贴对方的公钥）</label>
+                        <div class="gm-key-row">
+                            <input type="text" id="sm2-pubkey" placeholder="130 位 Hex 公钥，04 开头（点击“生成密钥对”自动填充）" autocomplete="off">
+                            <button type="button" class="btn btn-secondary" onclick="gmCopyInput('sm2-pubkey')">复制</button>
+                        </div>
+                    </div>
+
+                    <!-- 从 PKCS#8 PEM 提取私钥：极简 DER 扫描（找 04 20 头取其后 32 字节） -->
+                    <div class="input-group">
+                        <label>从 PKCS#8 PEM 私钥提取（生成密钥对之外的另一种获得私钥的方式）</label>
+                        <textarea id="sm2-pem-input" placeholder="粘贴 PKCS#8 PEM 或 Base64（如 MHcCAQEEI... 开头），支持 -----BEGIN PRIVATE KEY----- / -----END PRIVATE KEY----- 包装"></textarea>
+                    </div>
+                    <div class="button-group">
+                        <button type="button" class="btn btn-primary" onclick="sm2FromPem()">提取</button>
+                        <button type="button" class="btn btn-secondary" onclick="sm2ClearPem()">清空</button>
+                    </div>
+
+                    <!-- SM2 加解密子块：加解密共用下方结果区 -->
+                    <div class="input-group">
+                        <label>SM2 加密输入（明文文本，使用上方公钥）</label>
+                        <textarea id="sm2-enc-input" placeholder="输入要加密的明文文本（UTF-8）"></textarea>
+                    </div>
+                    <div class="encoding-selector">
+                        <label style="margin-right: 12px; font-weight: bold; color: #333;">密文排布：</label>
+                        <label><input type="radio" name="sm2-cipher" value="1" checked><span>C1C3C2（新国标）</span></label>
+                        <label><input type="radio" name="sm2-cipher" value="0"><span>C1C2C3（旧标准）</span></label>
+                        <label style="margin-right: 12px; margin-left: 20px; font-weight: bold; color: #333;">密文输出：</label>
+                        <label><input type="radio" name="sm2-enc-out" value="hex" checked><span>Hex</span></label>
+                        <label><input type="radio" name="sm2-enc-out" value="base64"><span>Base64</span></label>
+                    </div>
+                    <div class="input-group">
+                        <label>SM2 解密输入（密文 Hex 或 Base64，使用上方私钥）</label>
+                        <textarea id="sm2-dec-input" placeholder="粘贴 SM2 密文（Hex 或 Base64）。带 04 前缀的密文会自动去掉前缀后再解密"></textarea>
+                    </div>
+                    <div class="button-group">
+                        <button type="button" class="btn btn-primary" onclick="sm2Encrypt()">SM2 加密</button>
+                        <button type="button" class="btn btn-primary" onclick="sm2Decrypt()">SM2 解密</button>
+                    </div>
+                    <div class="input-group">
+                        <label>加 / 解密结果（共用）</label>
+                        <div class="result-container">
+                            <div class="result-area" id="sm2-enc-result"></div>
+                            <button class="copy-btn" onclick="copyToClipboard('sm2-enc-result')">复制</button>
+                        </div>
+                    </div>
+                    <p class="tool-hint">💡 加密使用公钥、解密使用私钥；密文不含 04 前缀；加密 / 解密的"密文排布"选项必须一致。</p>
+                </div>
+
+                <!-- Section 3：SM2 签名 / 验签（复用 Section 2 的私钥 / 公钥框） -->
+                <div class="section">
+                    <h2>✍️ SM2 签名 / 验签</h2>
+                    <div class="input-group">
+                        <label>待签 / 待验消息（文本，签名用上方私钥、验签用上方公钥）</label>
+                        <textarea id="sm2-sign-input" placeholder="输入待签名或待验签的消息文本（UTF-8）"></textarea>
+                    </div>
+                    <div class="encoding-selector">
+                        <label style="margin-right: 12px; font-weight: bold; color: #333;">SM3 预处理(ZA)：</label>
+                        <label><input type="radio" name="sm2-sign-hash" value="yes" checked><span>是</span></label>
+                        <label><input type="radio" name="sm2-sign-hash" value="no"><span>否</span></label>
+                        <label style="margin-right: 12px; margin-left: 20px; font-weight: bold; color: #333;">DER 编码：</label>
+                        <label><input type="radio" name="sm2-sign-der" value="yes" checked><span>是</span></label>
+                        <label><input type="radio" name="sm2-sign-der" value="no"><span>否</span></label>
+                        <label style="margin-right: 12px; margin-left: 20px; font-weight: bold; color: #333;">UserId：</label>
+                        <input type="text" id="sm2-userid" value="1234567812345678" autocomplete="off">
+                    </div>
+                    <div class="input-group">
+                        <label>签名值（Hex；点击"SM2 签名"后自动填入，验签前也可手动粘贴）</label>
+                        <div class="gm-key-row">
+                            <input type="text" id="sm2-signvalue-input" placeholder="128 位 r||s Hex 或 DER 编码 Hex" autocomplete="off">
+                            <button type="button" class="btn btn-secondary" onclick="gmCopyInput('sm2-signvalue-input')">复制</button>
+                        </div>
+                    </div>
+                    <div class="button-group">
+                        <button type="button" class="btn btn-primary" onclick="sm2Sign()">SM2 签名</button>
+                        <button type="button" class="btn btn-primary" onclick="sm2Verify()">SM2 验签</button>
+                    </div>
+                    <div class="input-group">
+                        <label>结果</label>
+                        <div class="result-container">
+                            <div class="result-area gm-oneline" id="sm2-sign-result"></div>
+                            <button class="copy-btn" onclick="copyToClipboard('sm2-sign-result')">复制</button>
+                        </div>
+                    </div>
+                    <p class="tool-hint">💡 签名 / 验签双方须使用一致的 SM3 预处理、DER 编码与 UserId 设置；SM3 预处理(ZA) = 国标 GM/T 0009 规范签名（对 ZA||M 做 SM3），选"否"则直接对消息做 SM3。</p>
+                </div>
+
+                <!-- Section 4：EnDataUtil.dll 格式兼容（SM4EnData/SM4DeData 封装格式互通） -->
+                <div class="section">
+                    <h2>🔁 EnDataUtil 格式兼容</h2>
+                    <!-- 封装口径（自 EnDataUtil.dll 源码 enDataUtil.cpp 复刻）：
+                         加密 = SM4-ECB/PKCS7，密钥由固定 35 字节 yKey 经 SM3→对折→取反→MD5→对折→SM3→MD5
+                         派生并与 8 字节随机数逐字节异或；输出 = 大写Hex密文 + 16字符随机数Hex串（拼接在末尾） -->
+                    <div class="encoding-selector">
+                        <label style="margin-right: 12px; font-weight: bold; color: #333;">方向：</label>
+                        <label><input type="radio" name="gm-compat-mode" value="enc" checked><span>加密（明文 → 兼容密文）</span></label>
+                        <label><input type="radio" name="gm-compat-mode" value="dec"><span>解密（兼容密文 → 明文）</span></label>
+                    </div>
+                    <div class="input-group">
+                        <label id="gm-compat-input-label">明文（UTF-8 文本）</label>
+                        <textarea id="gm-compat-input" placeholder="加密：输入任意 UTF-8 文本；解密：粘贴 EnDataUtil 输出的 Hex 串（密文 Hex 后拼 16 字符随机数，如 B9F2EF55...52941FF1C11D798C）"></textarea>
+                    </div>
+                    <div class="button-group">
+                        <button type="button" class="btn btn-primary" onclick="gmCompatRun()">执行</button>
+                        <button type="button" class="btn btn-secondary" onclick="gmCompatClear()">清空</button>
+                    </div>
+                    <div class="input-group">
+                        <label>结果</label>
+                        <div class="result-container">
+                            <div class="result-area" id="gm-compat-result"></div>
+                            <button class="copy-btn" onclick="copyToClipboard('gm-compat-result')">复制</button>
+                        </div>
+                    </div>
+                    <p class="tool-hint">💡 此页签与 EnDataUtil.dll（SM4EnData / SM4DeData）完全互通：解密可打开 testEnDataUtil.exe 加密的任意输出（如样例 Aa123456 ↔ B9F2EF55...，以及打包数据中的私钥段）；加密输出可被该 DLL 直接解密。已逐字节对拍验证。</p>
                 </div>
             </div>
 
@@ -824,5 +1021,8 @@
     <script src="js/qrcode.js"></script>
     <!-- GitHub 热榜页脚本（唯一联网功能，仅用户点击"获取热榜"时才请求 GitHub 公开 API） -->
     <script src="js/github.js"></script>
+    <!-- 国密 SM2/SM4：第三方库 sm-crypto 0.3.2（本地化，全局暴露 window.smCrypto）必须先于页面脚本加载 -->
+    <script src="js/vendor/sm-crypto.js"></script>
+    <script src="js/gmsm.js"></script>
 </body>
 </html>

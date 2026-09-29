@@ -1089,3 +1089,57 @@ body {
     border-radius: 50%;
     flex-shrink: 0;
 }
+
+/* ============================================================
+   国密 SM2/SM4 页新增样式
+   （复用 .section/.input-group/.encoding-selector/.button-group/
+     .result-container/.result-area/.copy-btn/.jwt-valid/.jwt-invalid
+     等既有类，此处仅补充本页特有的布局样式）
+   ============================================================ */
+
+/* ---------- 国密 SM2/SM4 页 ---------- */
+
+/* 选项行内的文本输入框（SM4 密钥/IV、SM3 输入、UserId）：弹性伸展 + 等宽字体便于核对 Hex */
+#page-gmsm .encoding-selector input[type="text"] {
+    flex: 1;
+    min-width: 220px;
+    max-width: 520px;
+    padding: 7px 10px;
+    border: 2px solid #e9ecef;
+    border-radius: 6px;
+    font-size: 13px;
+    font-family: 'Courier New', monospace;
+    box-sizing: border-box;
+}
+
+#page-gmsm .encoding-selector input[type="text"]:focus {
+    outline: none;
+    border-color: #667eea;
+}
+
+/* 密钥/签名值输入行：输入框与"复制"按钮同行排布 */
+.gm-key-row {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+}
+
+/* 通用 .input-group input 是 width:100%，行内需改回弹性收缩 */
+.gm-key-row input[type="text"] {
+    width: auto;
+    flex: 1;
+    min-width: 0;
+    font-family: 'Courier New', monospace;
+}
+
+/* 单行结果区（SM3 摘要 / 签名验签结果）：无需默认 260px 的最小高度 */
+.gm-oneline {
+    min-height: 0;
+    padding: 10px 15px;
+}
+
+/* SM4 / SM2 加解密结果区：内容通常数行，缩小默认最小高度 */
+#sm4-result,
+#sm2-enc-result {
+    min-height: 120px;
+}

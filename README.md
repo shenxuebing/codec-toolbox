@@ -19,7 +19,8 @@
 │   │   └── sm3.js                  # SM3 国密哈希
 │   ├── app.js                      # 主逻辑（编码转换/哈希/文件工具/URL/Unicode/随机 + 页面切换）
 │   │   ├── qrcode-generator.min.js  # 二维码生成库
-│   │   └── jsqr.min.js              # 二维码识别库
+│   │   ├── jsqr.min.js              # 二维码识别库
+│   │   └── sm-crypto.js             # 国密算法库（SM2/SM3/SM4，本地化打包含 jsbn）
 │   ├── timestamp.js                # 时间戳转换
 │   ├── jwt.js                      # JWT 解码/签发/验证
 │   ├── ascii.js                    # ASCII 码对照表
@@ -27,6 +28,7 @@
 │   ├── imgtool.js                  # 图片 ↔ Base64 互转
 │   ├── age.js                      # 年龄计算器
 │   ├── qrcode.js                   # 二维码生成/识别
+│   ├── gmsm.js                     # 国密 SM2/SM4 + EnDataUtil 格式兼容
 │   └── github.js                   # GitHub 热榜（唯一联网功能）
 └── 增强版编解码工具-单文件版.html   # 旧版单文件（保留备用）
 ```
@@ -58,6 +60,13 @@
 ### 🔒 哈希计算
 - MD5、SHA-1、SHA-256、SHA-512、SM3（国密），每种算法同时输出 Hex 和 Base64
 - 输入格式支持文本（UTF-8/GBK）/Hex/Base64
+
+### 🛡️ 国密 SM2/SM4
+- SM4 加解密：ECB/CBC × PKCS7/无填充，输入支持文本(UTF-8)/Hex/Base64，输出 Hex/Base64，随机密钥/IV 生成
+- SM3 摘要：支持文本/Hex 输入
+- SM2 密钥对生成、PKCS#8 PEM/Base64 私钥提取（自动定位 32 字节私钥段）
+- SM2 加解密（C1C3C2 新国标 / C1C2C3 旧标准）与签名验签（SM3 预处理、DER 编码、UserId 可配）
+- **EnDataUtil 格式兼容**：与 EnDataUtil.dll 的 SM4EnData/SM4DeData 封装格式完全互通（固定 yKey + 随机数经 SM3对折→取反→MD5→对折→SM3→MD5 派生密钥），可解开 testEnDataUtil.exe 加密的任意输出，已用样例逐字节对拍验证
 
 ### 📁 文件工具
 - 拖拽或点击选择文件，计算五种哈希（与文本页签结果一致）
