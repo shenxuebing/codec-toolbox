@@ -15,12 +15,15 @@
         </div>
         <nav class="sidebar-menu">
             <button type="button" class="menu-item active" data-page="page-base64hex"><span class="menu-icon">🔄</span><span class="menu-text">Base64 / Hex</span></button>
+            <button type="button" class="menu-item" data-page="page-radix"><span class="menu-icon">🔢</span><span class="menu-text">进制转换</span></button>
+            <button type="button" class="menu-item" data-page="page-uuid"><span class="menu-icon">🆔</span><span class="menu-text">UUID 生成</span></button>
             <button type="button" class="menu-item" data-page="page-string"><span class="menu-icon">🔤</span><span class="menu-text">字符串编码</span></button>
             <button type="button" class="menu-item" data-page="page-url"><span class="menu-icon">🔗</span><span class="menu-text">URL 工具</span></button>
             <button type="button" class="menu-item" data-page="page-unicode"><span class="menu-icon">🇺🇳</span><span class="menu-text">Unicode 转换</span></button>
             <button type="button" class="menu-item" data-page="page-random"><span class="menu-icon">🎲</span><span class="menu-text">随机字节</span></button>
             <button type="button" class="menu-item" data-page="page-hash"><span class="menu-icon">🔒</span><span class="menu-text">哈希计算</span></button>
             <button type="button" class="menu-item" data-page="page-gmsm"><span class="menu-icon">🛡️</span><span class="menu-text">国密 SM2/SM4</span></button>
+            <button type="button" class="menu-item" data-page="page-asn1"><span class="menu-icon">🧬</span><span class="menu-text">ASN.1 查看器</span></button>
             <button type="button" class="menu-item" data-page="page-file"><span class="menu-icon">📁</span><span class="menu-text">文件工具</span></button>
             <button type="button" class="menu-item" data-page="page-timestamp"><span class="menu-icon">🕐</span><span class="menu-text">时间戳转换</span></button>
             <button type="button" class="menu-item" data-page="page-jwt"><span class="menu-icon">🔑</span><span class="menu-text">JWT 工具</span></button>
@@ -58,6 +61,96 @@
                             <button class="copy-btn" onclick="copyToClipboard('hex-result')">复制</button>
                         </div>
                     </div>
+                </div>
+            </div>
+
+            <!-- 进制转换：2/8/10/16/36/62 进制任意长度大整数互转（基于 BigInt） -->
+            <div id="page-radix" class="page">
+                <div class="section">
+                    <h2>🔢 进制转换</h2>
+                    <div class="input-group">
+                        <label>输入数值</label>
+                        <input type="text" id="radix-input" placeholder="输入任意进制的整数，如 255、0xFF、0b1010、-42">
+                    </div>
+                    <div class="encoding-selector">
+                        <label style="margin-right: 20px; font-weight: bold; color: #333;">输入进制：</label>
+                        <label><input type="radio" name="radix-base" value="2"><span>2进制(0b)</span></label>
+                        <label><input type="radio" name="radix-base" value="8"><span>8进制(0o)</span></label>
+                        <label><input type="radio" name="radix-base" value="10" checked><span>10进制</span></label>
+                        <label><input type="radio" name="radix-base" value="16"><span>16进制(0x)</span></label>
+                        <label><input type="radio" name="radix-base" value="36"><span>36进制</span></label>
+                        <label><input type="radio" name="radix-base" value="62"><span>62进制</span></label>
+                    </div>
+                    <div class="button-group">
+                        <button type="button" class="btn btn-primary" onclick="radixConvert()">转换</button>
+                        <button type="button" class="btn btn-secondary" onclick="radixClear()">清空</button>
+                    </div>
+                    <div class="input-group">
+                        <label>转换结果（同一数值的各进制表示，逐行可复制）</label>
+                        <div class="gm-key-row radix-out-row">
+                            <span class="radix-row-label">2进制 0b</span>
+                            <input type="text" id="radix-out-2" readonly>
+                            <button type="button" class="btn btn-secondary" onclick="gmCopyInput('radix-out-2')">复制</button>
+                        </div>
+                        <div class="gm-key-row radix-out-row">
+                            <span class="radix-row-label">8进制 0o</span>
+                            <input type="text" id="radix-out-8" readonly>
+                            <button type="button" class="btn btn-secondary" onclick="gmCopyInput('radix-out-8')">复制</button>
+                        </div>
+                        <div class="gm-key-row radix-out-row">
+                            <span class="radix-row-label">10进制</span>
+                            <input type="text" id="radix-out-10" readonly>
+                            <button type="button" class="btn btn-secondary" onclick="gmCopyInput('radix-out-10')">复制</button>
+                        </div>
+                        <div class="gm-key-row radix-out-row">
+                            <span class="radix-row-label">16进制 0x</span>
+                            <input type="text" id="radix-out-16" readonly>
+                            <button type="button" class="btn btn-secondary" onclick="gmCopyInput('radix-out-16')">复制</button>
+                        </div>
+                        <div class="gm-key-row radix-out-row">
+                            <span class="radix-row-label">36进制</span>
+                            <input type="text" id="radix-out-36" readonly>
+                            <button type="button" class="btn btn-secondary" onclick="gmCopyInput('radix-out-36')">复制</button>
+                        </div>
+                        <div class="gm-key-row radix-out-row">
+                            <span class="radix-row-label">62进制</span>
+                            <input type="text" id="radix-out-62" readonly>
+                            <button type="button" class="btn btn-secondary" onclick="gmCopyInput('radix-out-62')">复制</button>
+                        </div>
+                    </div>
+                    <p class="tool-hint">💡 支持任意长度大整数（基于 BigInt）；负数输出各进制的 - 前缀形式；36/62 进制数字字符分别用 0-9a-z / 0-9a-zA-Z；输入可带与所选进制一致的 0b/0o/0x 前缀及千分位逗号。</p>
+                </div>
+            </div>
+
+            <!-- UUID 生成：v4 随机 / v7 时间戳有序，支持批量与大小写/去连字符选项 -->
+            <div id="page-uuid" class="page">
+                <div class="section">
+                    <h2>🆔 UUID 生成器</h2>
+                    <div class="encoding-selector">
+                        <label style="margin-right: 12px; font-weight: bold; color: #333;">版本：</label>
+                        <label><input type="radio" name="uuid-version" value="v4" checked><span>v4（随机）</span></label>
+                        <label><input type="radio" name="uuid-version" value="v7"><span>v7（时间戳有序）</span></label>
+                        <label style="margin-right: 12px; margin-left: 20px; font-weight: bold; color: #333;">数量：</label>
+                        <input type="number" id="uuid-count" value="10" min="1" max="1000">
+                    </div>
+                    <div class="encoding-selector">
+                        <label style="margin-right: 12px; font-weight: bold; color: #333;">格式：</label>
+                        <label><input type="radio" name="uuid-case" value="lower" checked><span>小写</span></label>
+                        <label><input type="radio" name="uuid-case" value="upper"><span>大写</span></label>
+                        <label><input type="checkbox" id="uuid-hyphen"><span>去连字符</span></label>
+                    </div>
+                    <div class="button-group">
+                        <button type="button" class="btn btn-primary" onclick="uuidGenerate()">生成</button>
+                        <button type="button" class="btn btn-secondary" onclick="uuidClear()">清空</button>
+                    </div>
+                    <div class="input-group">
+                        <label>生成结果（每行一个 UUID）</label>
+                        <div class="result-container">
+                            <div class="result-area" id="uuid-result"></div>
+                            <button class="copy-btn" onclick="copyToClipboard('uuid-result')">复制</button>
+                        </div>
+                    </div>
+                    <p class="tool-hint">💡 v4 为纯随机（version 位 4）；v7 按 RFC 9562 布局，前 48 位为毫秒时间戳（version 位 7），整体随时间递增——同一毫秒内多次生成天然有序，但随机部分仍随机，不保证严格单调；随机数来自浏览器 crypto.getRandomValues。</p>
                 </div>
             </div>
 
@@ -464,6 +557,37 @@
                         </div>
                     </div>
                     <p class="tool-hint">💡 此页签与 EnDataUtil.dll（SM4EnData / SM4DeData）完全互通：解密可打开 testEnDataUtil.exe 加密的任意输出（如样例 Aa123456 ↔ B9F2EF55...，以及打包数据中的私钥段）；加密输出可被该 DLL 直接解密。已逐字节对拍验证。</p>
+                </div>
+            </div>
+
+            <!-- ASN.1 查看器：PEM/Base64/Hex 输入 → DER TLV 树形解析（参考 asn1editor 体验） -->
+            <div id="page-asn1" class="page">
+                <div class="section">
+                    <h2>🧬 ASN.1 查看器（DER 解析）</h2>
+                    <div class="input-group">
+                        <label>输入数据（PEM / Base64 / Hex）</label>
+                        <textarea id="asn1-input" placeholder="粘贴 PEM（-----BEGIN CERTIFICATE----- 等）、纯 Base64 或 Hex 编码的 DER 数据..."></textarea>
+                    </div>
+                    <div class="input-group">
+                        <label>或从文件加载</label>
+                        <!-- 拖拽/点击二合一的文件选择区：隐藏的 input 实际负责弹出文件选择框 -->
+                        <div id="asn1-drop-zone" class="file-drop-zone">
+                            拖拽证书/密钥文件到此处，或点击选择文件（.cer / .crt / .pem / .der / .bin）
+                            <input type="file" id="asn1-file-input" accept=".cer,.crt,.pem,.der,.bin" style="display:none;">
+                        </div>
+                    </div>
+                    <div class="button-group">
+                        <button type="button" class="btn btn-primary" onclick="asn1Parse()">解析</button>
+                        <button type="button" class="btn btn-secondary" onclick="asn1Clear()">清空</button>
+                    </div>
+                    <!-- 概要信息行：识别的输入格式 / DER 总字节数 / 顶层类型（由 js/asn1.js 填充） -->
+                    <div id="asn1-info" class="asn1-info"></div>
+                    <!-- 树形结果：每行一个 TLV 节点，点击复制该节点完整 Hex -->
+                    <div class="input-group">
+                        <label>解析结果（点击节点复制该节点完整 Hex）</label>
+                        <div id="asn1-tree" class="asn1-tree">解析后此处按层级展示 TLV 树（tag 名 / 偏移与长度 / 内容预览）</div>
+                    </div>
+                    <p class="tool-hint">💡 支持 PEM（多块取第一个）、纯 Base64、Hex 三种输入，自动识别；OCTET STRING 内容若恰为合法 DER 会自动展开并标注 [内嵌 DER]（PKCS#8 / 信封常见）；嵌套超过 16 层自动中止；解析错误会定位到具体字节位置。</p>
                 </div>
             </div>
 
@@ -1024,5 +1148,10 @@
     <!-- 国密 SM2/SM4：第三方库 sm-crypto 0.3.2（本地化，全局暴露 window.smCrypto）必须先于页面脚本加载 -->
     <script src="js/vendor/sm-crypto.js"></script>
     <script src="js/gmsm.js"></script>
+    <!-- ASN.1 查看器页脚本（DER TLV 解析，自包含无依赖） -->
+    <script src="js/asn1.js"></script>
+    <!-- 进制转换 / UUID 生成页脚本（自包含无依赖） -->
+    <script src="js/radix.js"></script>
+    <script src="js/uuid.js"></script>
 </body>
 </html>

@@ -1143,3 +1143,116 @@ body {
 #sm2-enc-result {
     min-height: 120px;
 }
+
+/* ============================================================
+   ASN.1 查看器（page-asn1）—— 树形 TLV 展示
+   ============================================================ */
+
+/* 概要信息行：识别的输入格式 / DER 总字节数 / 顶层类型 */
+.asn1-info {
+    font-size: 12px;
+    color: #495057;
+    background: #f8f9fa;
+    border: 1px solid #e9ecef;
+    border-radius: 6px;
+    padding: 8px 12px;
+    word-break: break-all;
+    line-height: 1.6;
+    margin-bottom: 14px;
+    min-height: 20px;
+}
+
+/* 树形结果容器：等宽字体、小号、白底，超高内部滚动 */
+.asn1-tree {
+    font-family: 'Courier New', monospace;
+    font-size: 12px;
+    background: #fff;
+    border: 2px solid #e9ecef;
+    border-radius: 6px;
+    padding: 8px 6px;
+    line-height: 1.8;
+    max-height: 560px;
+    overflow: auto;
+    word-break: break-all;
+    white-space: pre-wrap;
+    min-height: 120px;
+}
+
+/* 单个 TLV 节点行：hover 高亮、点击复制该节点完整 Hex */
+.asn1-node {
+    padding: 1px 6px 1px 4px;
+    border-radius: 4px;
+    cursor: pointer;
+}
+
+.asn1-node:hover {
+    background: #eef0fe;
+}
+
+/* tag 名：主题色加粗 */
+.asn1-tag {
+    color: #667eea;
+    font-weight: bold;
+}
+
+/* 偏移/长度元信息：灰色小字 */
+.asn1-meta {
+    color: #999;
+    font-size: 11px;
+    margin: 0 6px;
+}
+
+/* 内容预览：深蓝绿色 */
+.asn1-preview {
+    color: #0e8f83;
+}
+
+/* 解析错误提示块 */
+.asn1-error {
+    color: #dc3545;
+    padding: 8px 10px;
+    word-break: break-all;
+    white-space: pre-wrap;
+}
+
+/* ============================================================
+   进制转换（page-radix）—— 6 行结果（复用 .gm-key-row 行布局）
+   ============================================================ */
+
+/* 结果行之间的纵向间距 */
+.radix-out-row {
+    margin-bottom: 8px;
+}
+
+/* 行首进制标签：固定宽度不参与弹性收缩 */
+.radix-out-row .radix-row-label {
+    flex-shrink: 0;
+    width: 92px;
+    font-size: 13px;
+    font-weight: 600;
+    color: #495057;
+}
+
+/* 只读结果输入框：浅灰底提示不可编辑 */
+.radix-out-row input[readonly] {
+    background: #f8f9fa;
+}
+
+/* ============================================================
+   UUID 生成器（page-uuid）
+   ============================================================ */
+
+/* 数量输入框：行内小尺寸（不受 .input-group input 的 100% 宽影响） */
+#uuid-count {
+    width: 90px;
+    padding: 6px 10px;
+    border: 2px solid #e9ecef;
+    border-radius: 6px;
+    font-size: 14px;
+    box-sizing: border-box;
+}
+
+#uuid-count:focus {
+    outline: none;
+    border-color: #667eea;
+}
