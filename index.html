@@ -29,9 +29,12 @@
             <button type="button" class="menu-item" data-page="page-jwt"><span class="menu-icon">🔑</span><span class="menu-text">JWT 工具</span></button>
             <button type="button" class="menu-item" data-page="page-ascii"><span class="menu-icon">📋</span><span class="menu-text">ASCII 码表</span></button>
             <button type="button" class="menu-item" data-page="page-json"><span class="menu-icon">🗂️</span><span class="menu-text">JSON 工具</span></button>
+            <button type="button" class="menu-item" data-page="page-csv"><span class="menu-icon">📋</span><span class="menu-text">JSON ↔ CSV</span></button>
             <button type="button" class="menu-item" data-page="page-regex"><span class="menu-icon">🔁</span><span class="menu-text">正则测试</span></button>
             <button type="button" class="menu-item" data-page="page-diff"><span class="menu-icon">📊</span><span class="menu-text">文本 Diff</span></button>
             <button type="button" class="menu-item" data-page="page-ipcalc"><span class="menu-icon">🌐</span><span class="menu-text">IP 子网计算</span></button>
+            <button type="button" class="menu-item" data-page="page-cron"><span class="menu-icon">⏰</span><span class="menu-text">Cron 解析</span></button>
+            <button type="button" class="menu-item" data-page="page-http"><span class="menu-icon">📡</span><span class="menu-text">HTTP / MIME 速查</span></button>
             <button type="button" class="menu-item" data-page="page-image"><span class="menu-icon">🖼️</span><span class="menu-text">图片 Base64</span></button>
             <button type="button" class="menu-item" data-page="page-age"><span class="menu-icon">🎂</span><span class="menu-text">年龄计算</span></button>
             <button type="button" class="menu-item" data-page="page-qrcode"><span class="menu-icon">📡</span><span class="menu-text">二维码工具</span></button>
@@ -919,6 +922,45 @@
                 </div>
             </div>
 
+            <!-- JSON ↔ CSV 互转：对象数组与表格文本双向转换（RFC 4180 转义/解析 + 类型推断） -->
+            <div id="page-csv" class="page">
+                <div class="section">
+                    <h2>📋 JSON ↔ CSV 互转</h2>
+                    <div class="encoding-selector">
+                        <label style="margin-right: 20px; font-weight: bold; color: #333;">方向：</label>
+                        <label><input type="radio" name="csv-mode" value="j2c" checked><span>JSON → CSV</span></label>
+                        <label><input type="radio" name="csv-mode" value="c2j"><span>CSV → JSON</span></label>
+                    </div>
+                    <div class="encoding-selector">
+                        <label style="margin-right: 12px; font-weight: bold; color: #333;">分隔符：</label>
+                        <label><input type="radio" name="csv-sep" value="," checked><span>逗号</span></label>
+                        <label><input type="radio" name="csv-sep" value=";"><span>分号</span></label>
+                        <label><input type="radio" name="csv-sep" value="\t"><span>Tab</span></label>
+                        <label style="margin-left: 20px;"><input type="checkbox" id="csv-header" checked><span>首行为表头</span></label>
+                        <label style="margin-left: 12px;"><input type="checkbox" id="csv-bom"><span>输出加 BOM（Excel 兼容）</span></label>
+                    </div>
+                    <div class="input-group">
+                        <label>输入</label>
+                        <textarea id="csv-input" rows="12" placeholder='输入 JSON 对象数组，如 [{"name":"张三","age":25},{"name":"李四","age":30,"city":"北京"}]'></textarea>
+                    </div>
+                    <div class="button-group">
+                        <button type="button" class="btn btn-primary" onclick="csvConvert()">转换</button>
+                        <button type="button" class="btn btn-secondary" onclick="csvClear()">清空</button>
+                    </div>
+                    <div class="input-group">
+                        <label>结果</label>
+                        <div class="result-container">
+                            <div class="result-area" id="csv-result">点击"转换"后此处显示结果</div>
+                            <button class="copy-btn" onclick="copyToClipboard('csv-result')">复制</button>
+                        </div>
+                    </div>
+                    <div class="button-group">
+                        <button type="button" class="btn btn-secondary" onclick="csvDownload()">下载 .csv</button>
+                    </div>
+                    <p class="tool-hint">💡 CSV 按 RFC 4180 转义/解析：含分隔符、双引号、换行的字段自动用双引号包裹且内部 " 翻倍；CSV → JSON 时自动推断类型（数字/布尔，前导零编号如 007 保持字符串）；勾选 BOM 后 Excel 双击打开中文不乱码。</p>
+                </div>
+            </div>
+
             <!-- 正则测试器：模式匹配统计 / 高亮预览 / 分组捕获明细 / 替换预览 -->
             <div id="page-regex" class="page">
                 <div class="section">
@@ -1133,6 +1175,71 @@
                     </div>
                     <p class="tool-hint" id="ipcalc-extra">💡 支持 CIDR（192.168.1.36/26）、IP + 点分掩码（192.168.1.36 255.255.255.192）与纯 IP（默认 /32）三种输入形态。</p>
                     <p class="tool-hint">💡 纯位运算：network = IP &amp; 掩码，broadcast = network | 反掩码；/31（RFC 3021 点对点链路）无网络/广播地址、两端均可用，/32 网络 = 广播 = 主机自身，其余口径可用主机 = 网段总地址数 − 2。</p>
+                </div>
+            </div>
+
+            <!-- Cron 解析：表达式 → 中文描述（cronstrue 中文语言包）/ 字段取值明细 / 未来 5 次执行时间 -->
+            <div id="page-cron" class="page">
+                <div class="section">
+                    <h2>⏰ Cron 表达式解析</h2>
+                    <div class="input-group">
+                        <label>Cron 表达式（5 段：分 时 日 月 周）</label>
+                        <input type="text" id="cron-input" placeholder="*/5 * * * * 或 0 9 * * 1-5" autocomplete="off">
+                    </div>
+                    <div class="button-group">
+                        <button type="button" class="btn btn-primary" onclick="cronRun()">解析</button>
+                        <button type="button" class="btn btn-secondary" onclick="cronClear()">清空</button>
+                    </div>
+                    <div class="input-group">
+                        <label>中文描述</label>
+                        <div class="result-container">
+                            <div class="result-area gm-oneline" id="cron-desc"></div>
+                            <button class="copy-btn" onclick="copyToClipboard('cron-desc')">复制</button>
+                        </div>
+                    </div>
+                    <div class="input-group">
+                        <label>字段明细（取值集合为紧凑区间表示法，超过 12 个值只列前 12 个）</label>
+                        <!-- 五行表格内容由 js/cron.js 动态生成 -->
+                        <table class="query-table" id="cron-fields"></table>
+                    </div>
+                    <div class="input-group">
+                        <label>下次执行时间（未来 5 次，本地时区，精确到分钟）</label>
+                        <div class="result-container">
+                            <div class="result-area" id="cron-next"></div>
+                            <button class="copy-btn" onclick="copyToClipboard('cron-next')">复制</button>
+                        </div>
+                    </div>
+                    <p class="tool-hint">💡 支持 *、*/n、a-b、a-b/n、逗号列表与单值；星期 0/7 均为周日；日与星期均受限时按标准 Cron 规范取"或"关系（其一为 * 时取"且"）；下次执行由逐分钟暴力扫描推算（上限一年）。</p>
+                </div>
+            </div>
+
+            <!-- HTTP / MIME 速查：常用状态码（搜索 + 分类过滤）与 MIME 类型（搜索）两张静态数据表 -->
+            <div id="page-http" class="page">
+                <div class="section">
+                    <h2>📡 HTTP 状态码 / MIME 速查</h2>
+                    <h3>HTTP 状态码</h3>
+                    <div class="input-group">
+                        <label>搜索</label>
+                        <input type="text" id="http-search" placeholder="按代码/短语/说明搜索，如 404、NOT、重定向" autocomplete="off">
+                    </div>
+                    <div class="encoding-selector">
+                        <label style="margin-right: 12px; font-weight: bold; color: #333;">分类：</label>
+                        <label><input type="radio" name="http-cat" value="all" checked><span>全部</span></label>
+                        <label><input type="radio" name="http-cat" value="1"><span>1xx 信息</span></label>
+                        <label><input type="radio" name="http-cat" value="2"><span>2xx 成功</span></label>
+                        <label><input type="radio" name="http-cat" value="3"><span>3xx 重定向</span></label>
+                        <label><input type="radio" name="http-cat" value="4"><span>4xx 客户端错误</span></label>
+                        <label><input type="radio" name="http-cat" value="5"><span>5xx 服务端错误</span></label>
+                    </div>
+                    <!-- 表格行由 js/httpref.js 动态生成 -->
+                    <div id="http-table-container"></div>
+                    <h3>MIME 类型</h3>
+                    <div class="input-group">
+                        <label>搜索</label>
+                        <input type="text" id="mime-search" placeholder="按扩展名/类型搜索，如 json、image" autocomplete="off">
+                    </div>
+                    <div id="mime-table-container"></div>
+                    <p class="tool-hint">💡 数据为内置静态表（HTTP 状态码含 RFC 6585/7725 扩展码，MIME 以 IANA 常见类型为准）；搜索同时匹配代码/短语/说明或扩展名/类型，大小写不敏感。</p>
                 </div>
             </div>
 
@@ -1377,5 +1484,11 @@
     <script src="js/regex.js"></script>
     <script src="js/diff.js"></script>
     <script src="js/ipcalc.js"></script>
+    <!-- Cron 解析页脚本（中文描述依赖 vendor/cronstrue，须先加载） -->
+    <script src="js/vendor/cronstrue.min.js"></script>
+    <script src="js/cron.js"></script>
+    <!-- HTTP / MIME 速查页脚本（自包含无依赖） -->
+    <script src="js/httpref.js"></script>
+    <script src="js/csvtool.js"></script>
 </body>
 </html>

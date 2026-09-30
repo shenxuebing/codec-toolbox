@@ -1448,3 +1448,32 @@ body {
     opacity: 1;
     flex: 0 0 auto;
 }
+
+/* ---------- Cron 解析 / HTTP·MIME 速查页（page-cron / page-http） ---------- */
+
+/* 速查表滚动外框（同 ASCII 码表容器口径，两表复用） */
+.httpref-wrap {
+    border: 2px solid #e9ecef;
+    border-radius: 8px;
+    background: white;
+    max-height: 60vh;
+    overflow: auto;
+    margin-bottom: 4px;
+}
+
+/* 速查表上方"共 N 条"计数行 */
+.httpref-count {
+    font-size: 12px;
+    color: #868e96;
+    margin: 4px 0 6px;
+}
+
+/* Cron 字段明细表：取值集合列允许换行，字段/表达式列保持单行 */
+#cron-fields th,
+#cron-fields td {
+    white-space: nowrap;
+}
+
+#cron-fields td:last-child {
+    white-space: normal;
+}
