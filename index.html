@@ -29,6 +29,9 @@
             <button type="button" class="menu-item" data-page="page-jwt"><span class="menu-icon">🔑</span><span class="menu-text">JWT 工具</span></button>
             <button type="button" class="menu-item" data-page="page-ascii"><span class="menu-icon">📋</span><span class="menu-text">ASCII 码表</span></button>
             <button type="button" class="menu-item" data-page="page-json"><span class="menu-icon">🗂️</span><span class="menu-text">JSON 工具</span></button>
+            <button type="button" class="menu-item" data-page="page-regex"><span class="menu-icon">🔁</span><span class="menu-text">正则测试</span></button>
+            <button type="button" class="menu-item" data-page="page-diff"><span class="menu-icon">📊</span><span class="menu-text">文本 Diff</span></button>
+            <button type="button" class="menu-item" data-page="page-ipcalc"><span class="menu-icon">🌐</span><span class="menu-text">IP 子网计算</span></button>
             <button type="button" class="menu-item" data-page="page-image"><span class="menu-icon">🖼️</span><span class="menu-text">图片 Base64</span></button>
             <button type="button" class="menu-item" data-page="page-age"><span class="menu-icon">🎂</span><span class="menu-text">年龄计算</span></button>
             <button type="button" class="menu-item" data-page="page-qrcode"><span class="menu-icon">📡</span><span class="menu-text">二维码工具</span></button>
@@ -916,6 +919,223 @@
                 </div>
             </div>
 
+            <!-- 正则测试器：模式匹配统计 / 高亮预览 / 分组捕获明细 / 替换预览 -->
+            <div id="page-regex" class="page">
+                <div class="section">
+                    <h2>🔁 正则测试器</h2>
+                    <div class="input-group">
+                        <label>正则表达式（无需两侧斜杠）</label>
+                        <input type="text" id="regex-pattern" placeholder="如 ^\d{4}-\d{2}-\d{2}$" autocomplete="off">
+                    </div>
+                    <div class="encoding-selector">
+                        <label style="margin-right: 12px; font-weight: bold; color: #333;">flags：</label>
+                        <label><input type="checkbox" id="regex-flag-g" checked><span>g（全局）</span></label>
+                        <label><input type="checkbox" id="regex-flag-i"><span>i（忽略大小写）</span></label>
+                        <label><input type="checkbox" id="regex-flag-m"><span>m（多行）</span></label>
+                        <label><input type="checkbox" id="regex-flag-s"><span>s（点号含换行）</span></label>
+                        <label><input type="checkbox" id="regex-flag-u"><span>u（Unicode）</span></label>
+                        <label><input type="checkbox" id="regex-flag-y"><span>y（粘性）</span></label>
+                    </div>
+                    <div class="input-group">
+                        <label>替换字符串（可选，$1 引用分组，$&amp; 引用整段匹配）</label>
+                        <input type="text" id="regex-replace" placeholder="如 [$1] 或 $2/$3/$1，留空则不做替换" autocomplete="off">
+                    </div>
+                    <div class="input-group">
+                        <label>测试文本</label>
+                        <textarea id="regex-text" rows="10" placeholder="输入待匹配文本；输入停顿约 0.4 秒会自动重新匹配"></textarea>
+                    </div>
+                    <div class="button-group">
+                        <button type="button" class="btn btn-primary" onclick="regexRun()">匹配</button>
+                        <button type="button" class="btn btn-secondary" onclick="regexClear()">清空</button>
+                    </div>
+                    <!-- 常用速查按钮由 js/regex.js 按 REGEX_PRESETS 数据动态生成（避免内联 onclick 的正则转义问题） -->
+                    <div class="encoding-selector">
+                        <label style="margin-right: 12px; font-weight: bold; color: #333;">常用速查：</label>
+                        <span id="regex-presets"></span>
+                    </div>
+                    <div class="input-group">
+                        <label>匹配统计</label>
+                        <div class="result-container">
+                            <div class="result-area gm-oneline" id="regex-stats">输入正则与测试文本后点击"匹配"</div>
+                            <button class="copy-btn" onclick="copyToClipboard('regex-stats')">复制</button>
+                        </div>
+                    </div>
+                    <div class="input-group">
+                        <label>高亮预览（黄色片段为匹配内容）</label>
+                        <div class="result-container">
+                            <div class="result-area" id="regex-highlight">执行匹配后此处显示高亮预览</div>
+                            <button class="copy-btn" onclick="copyToClipboard('regex-highlight')">复制</button>
+                        </div>
+                    </div>
+                    <div class="input-group">
+                        <label>分组捕获明细</label>
+                        <div class="result-area" id="regex-groups">执行匹配后此处显示各匹配的分组捕获</div>
+                    </div>
+                    <!-- 替换结果：仅填写了替换字符串时显示 -->
+                    <div class="input-group" id="regex-replace-block" style="display:none;">
+                        <label>替换结果</label>
+                        <div class="result-container">
+                            <div class="result-area" id="regex-replace-result"></div>
+                            <button class="copy-btn" onclick="copyToClipboard('regex-replace-result')">复制</button>
+                        </div>
+                    </div>
+                    <p class="tool-hint">💡 未勾选 g 时内部会自动按全局模式全量统计；零宽匹配（如 (?=a)）会强制前移避免死循环；测试文本超 100KB 会有性能提示。</p>
+                </div>
+            </div>
+
+            <!-- 文本 Diff 对比：左右文本按行 LCS 对齐，统一视图逐行渲染 -->
+            <div id="page-diff" class="page">
+                <div class="section">
+                    <h2>📊 文本 Diff 对比</h2>
+                    <div class="diff-textareas">
+                        <div class="input-group">
+                            <label>原文本（左）</label>
+                            <textarea id="diff-left" rows="12" placeholder="粘贴原文本..."></textarea>
+                        </div>
+                        <div class="input-group">
+                            <label>新文本（右）</label>
+                            <textarea id="diff-right" rows="12" placeholder="粘贴新文本..."></textarea>
+                        </div>
+                    </div>
+                    <div class="encoding-selector">
+                        <label><input type="checkbox" id="diff-ignore-ws"><span>忽略行首尾空白</span></label>
+                        <label><input type="checkbox" id="diff-ignore-case"><span>忽略大小写</span></label>
+                    </div>
+                    <div class="button-group">
+                        <button type="button" class="btn btn-primary" onclick="diffRun()">对比</button>
+                        <button type="button" class="btn btn-secondary" onclick="diffSwap()">交换左右</button>
+                        <button type="button" class="btn btn-secondary" onclick="diffClear()">清空</button>
+                    </div>
+                    <div class="input-group">
+                        <label>统计</label>
+                        <div class="result-container">
+                            <div class="result-area gm-oneline" id="diff-stats">输入左右文本后点击"对比"</div>
+                            <button class="copy-btn" onclick="copyToClipboard('diff-stats')">复制</button>
+                        </div>
+                    </div>
+                    <div class="input-group">
+                        <label>对比结果（= 未变 / − 删除 / + 新增；列为 左行号 | 右行号 | 符号 | 内容）</label>
+                        <div class="result-area diff-result" id="diff-result">执行对比后此处逐行显示差异</div>
+                    </div>
+                    <p class="tool-hint">💡 采用 LCS（最长公共子序列）经典 DP 算法逐行对齐；忽略空白/大小写选项只影响比较、显示仍为原文；行数超过 2000 时仅对比前 2000 行。</p>
+                </div>
+            </div>
+
+            <!-- IP 子网计算器：CIDR / 点分掩码 / 纯 IP → 网络地址、广播地址、可用主机范围（纯位运算） -->
+            <div id="page-ipcalc" class="page">
+                <div class="section">
+                    <h2>🌐 IP 子网计算器（IPv4）</h2>
+                    <div class="input-group">
+                        <label>IP / CIDR</label>
+                        <input type="text" id="ipcalc-input" placeholder="192.168.1.36/26 或 192.168.1.36 255.255.255.192，支持 8-32 位前缀">
+                    </div>
+                    <div class="button-group">
+                        <button type="button" class="btn btn-primary" onclick="ipcalcRun()">计算</button>
+                        <button type="button" class="btn btn-secondary" onclick="ipcalcExample()">示例</button>
+                        <button type="button" class="btn btn-secondary" onclick="ipcalcClear()">清空</button>
+                    </div>
+                    <div class="input-group">
+                        <label>计算结果（每行可单独复制）</label>
+                        <table class="query-table" id="ipcalc-result-table">
+                            <tbody>
+                                <tr>
+                                    <th>网络地址</th>
+                                    <td>
+                                        <div class="ipcalc-cell">
+                                            <input type="text" id="ipcalc-out-network" readonly placeholder="—">
+                                            <button type="button" class="copy-btn" onclick="gmCopyInput('ipcalc-out-network')">复制</button>
+                                        </div>
+                                    </td>
+                                </tr>
+                                <tr>
+                                    <th>广播地址</th>
+                                    <td>
+                                        <div class="ipcalc-cell">
+                                            <input type="text" id="ipcalc-out-broadcast" readonly placeholder="—">
+                                            <button type="button" class="copy-btn" onclick="gmCopyInput('ipcalc-out-broadcast')">复制</button>
+                                        </div>
+                                    </td>
+                                </tr>
+                                <tr>
+                                    <th>子网掩码</th>
+                                    <td>
+                                        <div class="ipcalc-cell">
+                                            <input type="text" id="ipcalc-out-mask" readonly placeholder="—">
+                                            <button type="button" class="copy-btn" onclick="gmCopyInput('ipcalc-out-mask')">复制</button>
+                                        </div>
+                                    </td>
+                                </tr>
+                                <tr>
+                                    <th>反掩码（Wildcard）</th>
+                                    <td>
+                                        <div class="ipcalc-cell">
+                                            <input type="text" id="ipcalc-out-wildcard" readonly placeholder="—">
+                                            <button type="button" class="copy-btn" onclick="gmCopyInput('ipcalc-out-wildcard')">复制</button>
+                                        </div>
+                                    </td>
+                                </tr>
+                                <tr>
+                                    <th>第一个可用主机</th>
+                                    <td>
+                                        <div class="ipcalc-cell">
+                                            <input type="text" id="ipcalc-out-first" readonly placeholder="—">
+                                            <button type="button" class="copy-btn" onclick="gmCopyInput('ipcalc-out-first')">复制</button>
+                                        </div>
+                                    </td>
+                                </tr>
+                                <tr>
+                                    <th>最后一个可用主机</th>
+                                    <td>
+                                        <div class="ipcalc-cell">
+                                            <input type="text" id="ipcalc-out-last" readonly placeholder="—">
+                                            <button type="button" class="copy-btn" onclick="gmCopyInput('ipcalc-out-last')">复制</button>
+                                        </div>
+                                    </td>
+                                </tr>
+                                <tr>
+                                    <th>可用主机数</th>
+                                    <td>
+                                        <div class="ipcalc-cell">
+                                            <input type="text" id="ipcalc-out-count" readonly placeholder="—">
+                                            <button type="button" class="copy-btn" onclick="gmCopyInput('ipcalc-out-count')">复制</button>
+                                        </div>
+                                    </td>
+                                </tr>
+                                <tr>
+                                    <th>前缀长度</th>
+                                    <td>
+                                        <div class="ipcalc-cell">
+                                            <input type="text" id="ipcalc-out-prefix" readonly placeholder="—">
+                                            <button type="button" class="copy-btn" onclick="gmCopyInput('ipcalc-out-prefix')">复制</button>
+                                        </div>
+                                    </td>
+                                </tr>
+                                <tr>
+                                    <th>地址类型</th>
+                                    <td>
+                                        <div class="ipcalc-cell">
+                                            <input type="text" id="ipcalc-out-type" readonly placeholder="—">
+                                            <button type="button" class="copy-btn" onclick="gmCopyInput('ipcalc-out-type')">复制</button>
+                                        </div>
+                                    </td>
+                                </tr>
+                                <tr>
+                                    <th>IP 二进制表示</th>
+                                    <td>
+                                        <div class="ipcalc-cell">
+                                            <input type="text" id="ipcalc-out-binary" readonly placeholder="—">
+                                            <button type="button" class="copy-btn" onclick="gmCopyInput('ipcalc-out-binary')">复制</button>
+                                        </div>
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                    <p class="tool-hint" id="ipcalc-extra">💡 支持 CIDR（192.168.1.36/26）、IP + 点分掩码（192.168.1.36 255.255.255.192）与纯 IP（默认 /32）三种输入形态。</p>
+                    <p class="tool-hint">💡 纯位运算：network = IP &amp; 掩码，broadcast = network | 反掩码；/31（RFC 3021 点对点链路）无网络/广播地址、两端均可用，/32 网络 = 广播 = 主机自身，其余口径可用主机 = 网段总地址数 − 2。</p>
+                </div>
+            </div>
+
             <!-- 图片 Base64：图片 → Base64 编码 与 Base64 → 图片预览/下载 -->
             <div id="page-image" class="page">
                 <!-- Section 1：图片 → Base64（拖拽/点击选择，Data URI 与纯 Base64 两种输出） -->
@@ -1153,5 +1373,9 @@
     <!-- 进制转换 / UUID 生成页脚本（自包含无依赖） -->
     <script src="js/radix.js"></script>
     <script src="js/uuid.js"></script>
+    <!-- 正则测试器 / 文本 Diff 页脚本（自包含无依赖） -->
+    <script src="js/regex.js"></script>
+    <script src="js/diff.js"></script>
+    <script src="js/ipcalc.js"></script>
 </body>
 </html>

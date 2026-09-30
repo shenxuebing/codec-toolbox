@@ -1256,3 +1256,195 @@ body {
     outline: none;
     border-color: #667eea;
 }
+
+/* ============================================================
+   正则测试器（page-regex）
+   ============================================================ */
+
+/* 测试文本框：约 10 行高（覆盖 .input-group textarea 默认的 150px） */
+#regex-text {
+    height: 244px;
+}
+
+/* 常用速查按钮：小尺寸圆角浅底 */
+.regex-preset-btn {
+    padding: 4px 10px;
+    font-size: 12px;
+    border: 1px solid #d5d9e2;
+    border-radius: 14px;
+    background: #f8f9fa;
+    color: #495057;
+    cursor: pointer;
+    margin: 2px 4px 2px 0;
+    transition: border-color 0.2s, color 0.2s;
+}
+
+.regex-preset-btn:hover {
+    border-color: #667eea;
+    color: #667eea;
+}
+
+/* 匹配高亮：黄底标记（在深色代码文本上一眼可辨） */
+#regex-highlight mark {
+    background: #ffe58f;
+    color: inherit;
+    border-radius: 2px;
+    padding: 0 1px;
+}
+
+/* 零宽匹配标记：匹配内容为空时给个最小占位（虚线黄框），否则完全不可见 */
+#regex-highlight mark.regex-zero {
+    display: inline-block;
+    min-width: 8px;
+    min-height: 10px;
+    background: #fff3cd;
+    border: 1px dashed #f0ad4e;
+}
+
+/* 分组捕获明细表容器：复用 .result-area 底子，超高内部滚动 */
+#regex-groups {
+    min-height: 48px;
+    max-height: 320px;
+    overflow: auto;
+}
+
+/* 分组表截断提示行 */
+.regex-groups-more {
+    margin: 6px 0 0;
+    font-size: 12px;
+    color: #999;
+}
+
+/* ============================================================
+   文本 Diff 对比（page-diff）
+   ============================================================ */
+
+/* 左右双栏文本输入 */
+.diff-textareas {
+    display: flex;
+    gap: 12px;
+}
+
+.diff-textareas .input-group {
+    flex: 1;
+    min-width: 0; /* 允许 flex 子项收缩到内容以下，长行不撑破布局 */
+}
+
+/* 左右文本框：约 12 行高 */
+.diff-textareas textarea {
+    height: 292px;
+}
+
+/* 统一视图结果容器：超高内部滚动 */
+.diff-result {
+    min-height: 120px;
+    max-height: 520px;
+    overflow: auto;
+    padding: 4px 0;
+}
+
+/* 逐行样式：等宽字体 + 保留空白换行，flex 四列（左行号|右行号|符号|内容） */
+.diff-line {
+    font-family: 'Courier New', monospace;
+    font-size: 13px;
+    line-height: 1.6;
+    white-space: pre-wrap;
+    word-break: break-all;
+    display: flex;
+    align-items: flex-start;
+    padding: 0 4px;
+}
+
+/* 删除行：红底深红字 */
+.diff-del {
+    background: #fdecea;
+    color: #b71c1c;
+}
+
+/* 新增行：绿底深绿字 */
+.diff-add {
+    background: #e8f5e9;
+    color: #1b5e20;
+}
+
+/* 未变行：常规灰白 */
+.diff-eq {
+    color: #495057;
+}
+
+/* 行号列：固定窄宽、右对齐、灰字（行号不属于内容，不可选中复制） */
+.diff-lnum,
+.diff-rnum {
+    flex: 0 0 46px;
+    text-align: right;
+    padding: 0 6px;
+    color: #999;
+    font-size: 11px;
+    user-select: none;
+}
+
+/* 符号列：居中加粗 */
+.diff-sym {
+    flex: 0 0 22px;
+    text-align: center;
+    font-weight: bold;
+}
+
+/* 内容列：弹性伸展占满余宽 */
+.diff-content {
+    flex: 1;
+    min-width: 0;
+    padding-right: 10px;
+}
+
+/* 窄屏：左右双栏折为上下单栏 */
+@media (max-width: 900px) {
+    .diff-textareas {
+        flex-direction: column;
+    }
+
+    .diff-textareas textarea {
+        height: 200px;
+    }
+}
+
+/* ============================================================
+   IP 子网计算页（page-ipcalc）
+   （复用 .section/.input-group/.button-group/.btn/.query-table
+     /.copy-btn 等既有类，此处仅补充结果表特有的展示样式）
+   ============================================================ */
+
+/* 标签列：固定宽度不换行，值列占满余宽 */
+#ipcalc-result-table th {
+    width: 128px;
+    white-space: nowrap;
+}
+
+/* 结果单元格：只读输入框与迷你复制按钮并排 */
+.ipcalc-cell {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+/* 只读值：去边框透明底、等宽字体（与哈希值风格一致），flex 撑满余宽 */
+.ipcalc-cell input {
+    flex: 1;
+    min-width: 0;
+    padding: 0;
+    border: none;
+    background: transparent;
+    font-family: 'Courier New', monospace;
+    font-size: 13px;
+    color: #495057;
+}
+
+/* 复制按钮：默认绝对定位且 hover 才显现（为 .result-container 设计），
+   这里改为流式布局常显的小号按钮 */
+.ipcalc-cell .copy-btn {
+    position: static;
+    padding: 2px 8px;
+    font-size: 11px;
+    opacity: 1;
+    flex: 0 0 auto;
+}
