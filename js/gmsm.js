@@ -545,22 +545,41 @@ function gmCompatEncryptBytes(plainBytes) {
 }
 
 // SM4DeData 复刻：兼容密文串（Hex密文 + 末尾16字符random）→ 明文字节数组
+// random 大小写自适应：DLL 源码 iConvertBytesToHexStr 用 MyHEXSTR="0123456789ABCDEF"
+// 固定输出大写，但实际数据可能被外部工具转成小写（如实测样例 2.txt）。
+// random 以 ASCII 形态参与密钥派生，大小写不同密钥完全不同——
+// 先按原样派生解密，PKCS7 校验失败再依次尝试大写/小写变体。
 function gmCompatDecryptString(enDataStr) {
     var str = enDataStr.trim().replace(/\s/g, '');
     if (str.length < 34 || str.length % 2 !== 0) {
         throw new Error('兼容密文应为"偶数位 Hex（≥18字节密文 + 16字符随机数）"，当前长度 ' + str.length);
     }
-    var random = [];
     var randomStr = str.slice(-16);
-    for (var i = 0; i < 16; i++) random.push(randomStr.charCodeAt(i));
-    var key = gmMakeEnDataKey(GM_COMPAT_YKEY, random);
     var cipherHex = str.slice(0, str.length - 16).toLowerCase();
     if (!/^[0-9a-f]+$/.test(cipherHex) || cipherHex.length % 32 !== 0) {
         throw new Error('密文部分不是合法的 Hex，或长度不是 16 字节的整数倍');
     }
-    // 二进制解密取字节数组（库的字符串输出按 UTF-8 解释，不适用于任意数据）
-    var plainBytes = smCrypto.sm4.decrypt(cipherHex, key, { padding: 'pkcs#5', output: 'array' });
-    return { bytes: plainBytes, key: key, random: randomStr };
+    var variants = [randomStr];
+    if (randomStr !== randomStr.toUpperCase()) variants.push(randomStr.toUpperCase());
+    if (randomStr !== randomStr.toLowerCase()) variants.push(randomStr.toLowerCase());
+    var lastErr = null;
+    for (var v = 0; v < variants.length; v++) {
+        var random = [];
+        for (var i = 0; i < 16; i++) random.push(variants[v].charCodeAt(i));
+        var key = gmMakeEnDataKey(GM_COMPAT_YKEY, random);
+        try {
+            // 二进制解密取字节数组（库的字符串输出按 UTF-8 解释，不适用于任意数据）
+            var plainBytes = smCrypto.sm4.decrypt(cipherHex, key, { padding: 'pkcs#5', output: 'array' });
+            // 解密错误时库可能静默返回空数组（去填充失败），视为未命中继续尝试
+            if (plainBytes && plainBytes.length > 0) {
+                return { bytes: plainBytes, key: key, random: variants[v] };
+            }
+        } catch (e) {
+            lastErr = e;
+        }
+    }
+    throw new Error('解密失败：PKCS7 去填充校验未通过（' +
+        (lastErr && lastErr.message ? lastErr.message : '密文与随机数不匹配或数据被篡改') + '）');
 }
 
 // 页面入口：按方向单选执行加密/解密
