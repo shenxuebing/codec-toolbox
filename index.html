@@ -23,6 +23,7 @@
             <button type="button" class="menu-item" data-page="page-random"><span class="menu-icon">🎲</span><span class="menu-text">随机字节</span></button>
             <button type="button" class="menu-item" data-page="page-hash"><span class="menu-icon">🔒</span><span class="menu-text">哈希计算</span></button>
             <button type="button" class="menu-item" data-page="page-gmsm"><span class="menu-icon">🛡️</span><span class="menu-text">国密 SM2/SM4</span></button>
+            <button type="button" class="menu-item" data-page="page-hmac"><span class="menu-icon">🔏</span><span class="menu-text">HMAC 计算</span></button>
             <button type="button" class="menu-item" data-page="page-asn1"><span class="menu-icon">🧬</span><span class="menu-text">ASN.1 查看器</span></button>
             <button type="button" class="menu-item" data-page="page-file"><span class="menu-icon">📁</span><span class="menu-text">文件工具</span></button>
             <button type="button" class="menu-item" data-page="page-timestamp"><span class="menu-icon">🕐</span><span class="menu-text">时间戳转换</span></button>
@@ -31,11 +32,15 @@
             <button type="button" class="menu-item" data-page="page-json"><span class="menu-icon">🗂️</span><span class="menu-text">JSON 工具</span></button>
             <button type="button" class="menu-item" data-page="page-csv"><span class="menu-icon">📋</span><span class="menu-text">JSON ↔ CSV</span></button>
             <button type="button" class="menu-item" data-page="page-regex"><span class="menu-icon">🔁</span><span class="menu-text">正则测试</span></button>
+            <button type="button" class="menu-item" data-page="page-htmlentity"><span class="menu-icon">🏷️</span><span class="menu-text">HTML 实体</span></button>
             <button type="button" class="menu-item" data-page="page-diff"><span class="menu-icon">📊</span><span class="menu-text">文本 Diff</span></button>
+            <button type="button" class="menu-item" data-page="page-textkit"><span class="menu-icon">🧹</span><span class="menu-text">文本处理</span></button>
+            <button type="button" class="menu-item" data-page="page-sql"><span class="menu-icon">🗄️</span><span class="menu-text">SQL 格式化</span></button>
             <button type="button" class="menu-item" data-page="page-ipcalc"><span class="menu-icon">🌐</span><span class="menu-text">IP 子网计算</span></button>
             <button type="button" class="menu-item" data-page="page-cron"><span class="menu-icon">⏰</span><span class="menu-text">Cron 解析</span></button>
             <button type="button" class="menu-item" data-page="page-http"><span class="menu-icon">📡</span><span class="menu-text">HTTP / MIME 速查</span></button>
             <button type="button" class="menu-item" data-page="page-image"><span class="menu-icon">🖼️</span><span class="menu-text">图片 Base64</span></button>
+            <button type="button" class="menu-item" data-page="page-imgcompress"><span class="menu-icon">🗜️</span><span class="menu-text">图片压缩</span></button>
             <button type="button" class="menu-item" data-page="page-age"><span class="menu-icon">🎂</span><span class="menu-text">年龄计算</span></button>
             <button type="button" class="menu-item" data-page="page-qrcode"><span class="menu-icon">📡</span><span class="menu-text">二维码工具</span></button>
             <button type="button" class="menu-item" data-page="page-github"><span class="menu-icon">🔥</span><span class="menu-text">GitHub 热榜</span></button>
@@ -566,6 +571,59 @@
                 </div>
             </div>
 
+            <!-- HMAC 计算：Web Crypto 标准路径，一次算出 HMAC-SHA1/SHA-256/SHA-384/SHA-512 四种摘要 -->
+            <div id="page-hmac" class="page">
+                <div class="section">
+                    <h2>🔏 HMAC 计算</h2>
+                    <div class="input-group">
+                        <label>消息（按 UTF-8 编码后参与计算）</label>
+                        <textarea id="hmac-message" rows="6" placeholder="输入要计算 HMAC 的消息文本，如 hello"></textarea>
+                    </div>
+                    <div class="input-group">
+                        <label>密钥</label>
+                        <div class="encoding-selector">
+                            <input type="text" id="hmac-key" placeholder="输入密钥，如 key / 0123456789abcdef / a2V5" autocomplete="off">
+                            <label><input type="radio" name="hmac-key-format" value="text" checked><span>文本</span></label>
+                            <label><input type="radio" name="hmac-key-format" value="hex"><span>Hex</span></label>
+                            <label><input type="radio" name="hmac-key-format" value="base64"><span>Base64</span></label>
+                        </div>
+                    </div>
+                    <div class="encoding-selector">
+                        <label style="margin-right: 20px; font-weight: bold; color: #333;">输出格式：</label>
+                        <label><input type="radio" name="hmac-output" value="hex" checked><span>Hex（大写）</span></label>
+                        <label><input type="radio" name="hmac-output" value="base64"><span>Base64</span></label>
+                    </div>
+                    <div class="button-group">
+                        <button type="button" class="btn btn-primary" onclick="hmacRun()">计算</button>
+                        <button type="button" class="btn btn-secondary" onclick="hmacClear()">清空</button>
+                    </div>
+                    <div class="input-group">
+                        <label>计算结果（点击"计算"一次算出四种哈希的 HMAC）</label>
+                        <div class="gm-key-row radix-out-row">
+                            <span class="radix-row-label">SHA-1</span>
+                            <input type="text" id="hmac-out-sha1" readonly placeholder="—">
+                            <button type="button" class="btn btn-secondary" onclick="gmCopyInput('hmac-out-sha1')">复制</button>
+                        </div>
+                        <div class="gm-key-row radix-out-row">
+                            <span class="radix-row-label">SHA-256</span>
+                            <input type="text" id="hmac-out-sha256" readonly placeholder="—">
+                            <button type="button" class="btn btn-secondary" onclick="gmCopyInput('hmac-out-sha256')">复制</button>
+                        </div>
+                        <div class="gm-key-row radix-out-row">
+                            <span class="radix-row-label">SHA-384</span>
+                            <input type="text" id="hmac-out-sha384" readonly placeholder="—">
+                            <button type="button" class="btn btn-secondary" onclick="gmCopyInput('hmac-out-sha384')">复制</button>
+                        </div>
+                        <div class="gm-key-row radix-out-row">
+                            <span class="radix-row-label">SHA-512</span>
+                            <input type="text" id="hmac-out-sha512" readonly placeholder="—">
+                            <button type="button" class="btn btn-secondary" onclick="gmCopyInput('hmac-out-sha512')">复制</button>
+                        </div>
+                    </div>
+                    <p class="tool-hint">💡 HMAC-SM3 请在"国密 SM2/SM4"页查看；密钥格式说明：文本按 UTF-8 编码，Hex 需为偶数个十六进制字符（可带 0x 前缀、可含空格，如 0xdeadbeef 或 dead beef），Base64 为标准编码；计算走浏览器 Web Crypto 标准接口，全部在本地完成。</p>
+                </div>
+            </div>
+
             <!-- ASN.1 查看器：PEM/Base64/Hex 输入 → DER TLV 树形解析（参考 asn1editor 体验） -->
             <div id="page-asn1" class="page">
                 <div class="section">
@@ -1025,6 +1083,60 @@
                 </div>
             </div>
 
+            <!-- HTML 实体编解码：五个保留字/全量非 ASCII 转义 + 浏览器原生解码 -->
+            <div id="page-htmlentity" class="page">
+                <div class="section">
+                    <h2>🏷️ HTML 实体编解码</h2>
+                    <div class="encoding-selector">
+                        <label style="margin-right: 20px; font-weight: bold; color: #333;">转义范围：</label>
+                        <label><input type="radio" name="entity-scope" value="basic" checked><span>仅 &amp; &lt; &gt; &quot; &#39; 五个保留字</span></label>
+                        <label><input type="radio" name="entity-scope" value="all"><span>全部非 ASCII（&amp;#xNNNN; 形式）</span></label>
+                    </div>
+                    <div class="input-group">
+                        <label>输入内容</label>
+                        <textarea id="entity-input" rows="10" placeholder="转实体：输入含 &amp; &lt; &gt; &quot; &#39; 等字符的文本；转字符：输入含 &amp;amp; &amp;lt; &amp;#x6D4B; 等实体的文本"></textarea>
+                    </div>
+                    <div class="button-group">
+                        <button type="button" class="btn btn-primary" onclick="entityEncode()">转实体</button>
+                        <button type="button" class="btn btn-primary" onclick="entityDecode()">转字符</button>
+                        <button type="button" class="btn btn-secondary" onclick="entityClear()">清空</button>
+                    </div>
+                    <div class="input-group">
+                        <label>结果</label>
+                        <div class="result-container">
+                            <div class="result-area" id="entity-result"></div>
+                            <button class="copy-btn" onclick="copyToClipboard('entity-result')">复制</button>
+                        </div>
+                    </div>
+                    <div class="input-group">
+                        <label>常用实体速查表（实体 / 字符 / 名称）</label>
+                        <table class="query-table">
+                            <thead>
+                                <tr><th>实体</th><th>字符</th><th>名称</th></tr>
+                            </thead>
+                            <tbody>
+                                <tr><td>&amp;amp;</td><td>&amp;</td><td>与符号（必须最先转义）</td></tr>
+                                <tr><td>&amp;lt;</td><td>&lt;</td><td>小于号 / 左尖括号</td></tr>
+                                <tr><td>&amp;gt;</td><td>&gt;</td><td>大于号 / 右尖括号</td></tr>
+                                <tr><td>&amp;quot;</td><td>&quot;</td><td>双引号</td></tr>
+                                <tr><td>&amp;#39;</td><td>&#39;</td><td>单引号（数字实体，&amp;apos; 为 HTML5 命名）</td></tr>
+                                <tr><td>&amp;nbsp;</td><td>&nbsp;</td><td>不换行空格（U+00A0）</td></tr>
+                                <tr><td>&amp;copy;</td><td>&copy;</td><td>版权符号</td></tr>
+                                <tr><td>&amp;reg;</td><td>&reg;</td><td>注册商标符号</td></tr>
+                                <tr><td>&amp;trade;</td><td>&trade;</td><td>商标符号</td></tr>
+                                <tr><td>&amp;mdash;</td><td>&mdash;</td><td>长破折号（em dash）</td></tr>
+                                <tr><td>&amp;hellip;</td><td>&hellip;</td><td>省略号</td></tr>
+                                <tr><td>&amp;middot;</td><td>&middot;</td><td>间隔点 / 乘点</td></tr>
+                                <tr><td>&amp;deg;</td><td>&deg;</td><td>度数符号</td></tr>
+                                <tr><td>&amp;yen;</td><td>&yen;</td><td>日元 / 人民币符号</td></tr>
+                                <tr><td>&amp;euro;</td><td>&euro;</td><td>欧元符号</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                    <p class="tool-hint">💡 "转字符"借助浏览器原生 HTML 解析器解码，命名实体（&amp;amp; 等）与十进制/十六进制数字实体（&amp;#39; / &amp;#x6D4B;）均可识别；"全部非 ASCII"模式把五个保留字之外、码位大于 127 的字符统一转成 &amp;#xNNNN; 大写十六进制形式。</p>
+                </div>
+            </div>
+
             <!-- 文本 Diff 对比：左右文本按行 LCS 对齐，统一视图逐行渲染 -->
             <div id="page-diff" class="page">
                 <div class="section">
@@ -1060,6 +1172,95 @@
                         <div class="result-area diff-result" id="diff-result">执行对比后此处逐行显示差异</div>
                     </div>
                     <p class="tool-hint">💡 采用 LCS（最长公共子序列）经典 DP 算法逐行对齐；忽略空白/大小写选项只影响比较、显示仍为原文；行数超过 2000 时仅对比前 2000 行。</p>
+                </div>
+            </div>
+
+            <!-- 文本批量处理：去空白 / 删空行 / 去重 / 排序 / 转小写 链式处理 + 统计 -->
+            <div id="page-textkit" class="page">
+                <div class="section">
+                    <h2>🧹 文本批量处理</h2>
+                    <div class="input-group">
+                        <label>输入文本（按行处理，换行风格 \n 与 \r\n 均可）</label>
+                        <textarea id="textkit-input" rows="12" placeholder="粘贴多行文本，如单词表 / 日志 / ID 列表，再勾选下方处理选项..."></textarea>
+                    </div>
+                    <div class="encoding-selector">
+                        <label style="margin-right: 20px; font-weight: bold; color: #333;">统计模式：</label>
+                        <label><input type="radio" name="textkit-mode" value="chars" checked><span>字符数</span></label>
+                        <label><input type="radio" name="textkit-mode" value="lines"><span>行数</span></label>
+                    </div>
+                    <div class="encoding-selector">
+                        <label style="margin-right: 20px; font-weight: bold; color: #333;">处理选项：</label>
+                        <label><input type="checkbox" id="textkit-trim"><span>去行首尾空白</span></label>
+                        <label><input type="checkbox" id="textkit-rmempty"><span>删除空行</span></label>
+                        <label><input type="checkbox" id="textkit-dedupe"><span>行去重（保持首次出现）</span></label>
+                        <label><input type="checkbox" id="textkit-sort"><span>行排序</span></label>
+                        <label><input type="checkbox" id="textkit-sort-desc"><span>降序</span></label>
+                        <label><input type="checkbox" id="textkit-lower"><span>转小写</span></label>
+                    </div>
+                    <div class="button-group">
+                        <button type="button" class="btn btn-primary" onclick="textkitRun()">处理</button>
+                        <button type="button" class="btn btn-secondary" onclick="textkitClear()">清空</button>
+                    </div>
+                    <div class="input-group">
+                        <label>统计（处理前 → 处理后，字节数按 UTF-8 编码计算）</label>
+                        <div class="result-container">
+                            <div class="result-area gm-oneline" id="textkit-stats">输入文本并点击"处理"后此处显示统计</div>
+                            <button class="copy-btn" onclick="copyToClipboard('textkit-stats')">复制</button>
+                        </div>
+                    </div>
+                    <div class="input-group">
+                        <label>结果</label>
+                        <div class="result-container">
+                            <div class="result-area" id="textkit-result"></div>
+                            <button class="copy-btn" onclick="copyToClipboard('textkit-result')">复制</button>
+                            <button class="btn btn-secondary" onclick="textkitDownload()">下载 .txt</button>
+                        </div>
+                    </div>
+                    <p class="tool-hint">💡 处理顺序固定为：去行首尾空白 → 删除空行 → 行去重 → 行排序（localeCompare 本地化比较，可选降序）→ 转小写；"降序"仅在勾选"行排序"时生效；未勾选任何处理选项时只统计不修改文本；统计模式决定统计行中"字符数/行数"哪个排在首位。</p>
+                </div>
+            </div>
+
+            <!-- SQL 格式化：本地化 sql-formatter 库（离线可用），方言/缩进/关键字大小写可选，另附压缩为一行 -->
+            <div id="page-sql" class="page">
+                <div class="section">
+                    <h2>🗄️ SQL 格式化</h2>
+                    <div class="encoding-selector">
+                        <label style="margin-right: 20px; font-weight: bold; color: #333;">方言：</label>
+                        <label><input type="radio" name="sql-dialect" value="sql" checked><span>标准 SQL</span></label>
+                        <label><input type="radio" name="sql-dialect" value="mysql"><span>MySQL</span></label>
+                        <label><input type="radio" name="sql-dialect" value="postgresql"><span>PostgreSQL</span></label>
+                        <label><input type="radio" name="sql-dialect" value="sqlite"><span>SQLite</span></label>
+                        <label><input type="radio" name="sql-dialect" value="plsql"><span>Oracle（PL/SQL）</span></label>
+                        <label><input type="radio" name="sql-dialect" value="tsql"><span>SQL Server（T-SQL）</span></label>
+                    </div>
+                    <div class="encoding-selector">
+                        <label style="margin-right: 20px; font-weight: bold; color: #333;">缩进：</label>
+                        <label><input type="radio" name="sql-indent" value="2" checked><span>2 空格</span></label>
+                        <label><input type="radio" name="sql-indent" value="4"><span>4 空格</span></label>
+                        <label><input type="radio" name="sql-indent" value="tab"><span>Tab</span></label>
+                    </div>
+                    <div class="encoding-selector">
+                        <label style="margin-right: 20px; font-weight: bold; color: #333;">关键字：</label>
+                        <label><input type="radio" name="sql-case" value="upper" checked><span>关键字大写</span></label>
+                        <label><input type="radio" name="sql-case" value="preserve"><span>保持原样</span></label>
+                    </div>
+                    <div class="input-group">
+                        <label>SQL 输入（输入后自动格式化）</label>
+                        <textarea id="sql-input" rows="12" placeholder="SELECT a,b FROM t WHERE x=1"></textarea>
+                    </div>
+                    <div class="button-group">
+                        <button type="button" class="btn btn-primary" onclick="sqlFormatRun()">格式化</button>
+                        <button type="button" class="btn btn-secondary" onclick="sqlMinify()">压缩为一行</button>
+                        <button type="button" class="btn btn-secondary" onclick="sqlClear()">清空</button>
+                    </div>
+                    <div class="input-group">
+                        <label>格式化结果</label>
+                        <div class="result-container">
+                            <div class="result-area" id="sql-result"></div>
+                            <button class="copy-btn" onclick="copyToClipboard('sql-result')">复制</button>
+                        </div>
+                    </div>
+                    <p class="tool-hint">💡 基于 sql-formatter 开源库（本地化内置，离线可用）；支持 6 种方言与缩进/关键字大小写选项；非法 SQL 不抛错按原样整理，极端输入报错时显示错误信息；"压缩为一行"仅合并空白字符，不改动 SQL 语义。</p>
                 </div>
             </div>
 
@@ -1305,6 +1506,61 @@
                 </div>
             </div>
 
+            <!-- 图片压缩：canvas 离屏重绘转 JPEG/WebP/PNG，可按最长边等比缩小，显示压缩率并下载 -->
+            <div id="page-imgcompress" class="page">
+                <div class="section">
+                    <h2>🗜️ 图片压缩/缩放</h2>
+                    <div class="input-group">
+                        <label>选择图片</label>
+                        <!-- 拖拽/点击二合一的图片选择区：隐藏的 input 实际负责弹出文件选择框 -->
+                        <div id="imgc-drop-zone" class="file-drop-zone">
+                            拖拽图片到此处，或点击选择图片
+                            <input type="file" id="imgc-file-input" accept="image/*" style="display:none;">
+                        </div>
+                        <!-- 原图信息（名称/大小/宽高），由 JS 用 Image.onload 取 naturalWidth/Height 后填充 -->
+                        <div id="imgc-orig-info" style="font-size:12px;color:#495057;background:#f8f9fa;border:1px solid #e9ecef;border-radius:6px;padding:8px 12px;word-break:break-all;line-height:1.6;">选择图片后此处显示名称、大小与宽高</div>
+                    </div>
+                    <div class="input-group">
+                        <label>原图预览</label>
+                        <img id="imgc-preview" alt="原图预览" style="max-width:280px;max-height:200px;display:none;">
+                    </div>
+                    <div class="encoding-selector">
+                        <label style="margin-right: 20px; font-weight: bold; color: #333;">目标格式：</label>
+                        <label><input type="radio" name="imgc-format" value="image/jpeg" checked><span>JPEG</span></label>
+                        <label><input type="radio" name="imgc-format" value="image/webp"><span>WebP</span></label>
+                        <label><input type="radio" name="imgc-format" value="image/png"><span>PNG（无损）</span></label>
+                    </div>
+                    <div class="encoding-selector imgc-quality-row">
+                        <label style="margin-right: 20px; font-weight: bold; color: #333;">质量：</label>
+                        <input type="range" id="imgc-quality" min="10" max="100" value="80">
+                        <span id="imgc-quality-value" style="font-size:13px;color:#333;min-width:44px;">80%</span>
+                        <!-- 仅 JPEG/WebP 为有损编码受质量参数影响；PNG 恒为无损，质量滑块对其不生效 -->
+                        <span style="font-size:12px;color:#868e96;">仅 JPEG / WebP 生效，PNG 恒为无损</span>
+                    </div>
+                    <div class="encoding-selector">
+                        <label style="margin-right: 20px; font-weight: bold; color: #333;">最长边缩放：</label>
+                        <input type="number" id="imgc-maxside" value="1920" min="0" step="100" style="width:110px;">
+                        <span style="font-size:12px;color:#868e96;">像素（0 = 不缩放；最长边超出时按比例缩小）</span>
+                    </div>
+                    <div class="button-group">
+                        <button type="button" class="btn btn-primary" onclick="imgcCompress()">压缩</button>
+                        <button type="button" class="btn btn-secondary" onclick="imgcClear()">清空</button>
+                    </div>
+                    <div class="input-group">
+                        <label>压缩结果</label>
+                        <!-- 结果预览与信息并排展示（窄屏自动换行，样式见 css/style.css 的 .imgc-result-box） -->
+                        <div class="imgc-result-box">
+                            <img id="imgc-result-preview" alt="压缩结果预览" style="max-width:280px;max-height:200px;display:none;">
+                            <div id="imgc-result-info" style="font-size:12px;color:#495057;background:#f8f9fa;border:1px solid #e9ecef;border-radius:6px;padding:8px 12px;line-height:1.8;word-break:break-all;">点击"压缩"后此处显示新大小、新宽高与压缩率</div>
+                        </div>
+                    </div>
+                    <div class="button-group">
+                        <button type="button" class="btn btn-secondary" onclick="imgcDownload()">下载压缩图</button>
+                    </div>
+                    <p class="tool-hint">💡 canvas 本地重绘压缩，全程不上传；JPEG 输出时透明区域填充白色背景；压缩率为负表示目标格式/质量下文件反而变大（如 PNG 转高质量 JPEG）。</p>
+                </div>
+            </div>
+
             <!-- 年龄计算：周岁（日历借位）/ 总生存 / 下次生日 / 生肖 / 星座 -->
             <div id="page-age" class="page">
                 <div class="section">
@@ -1490,5 +1746,14 @@
     <!-- HTTP / MIME 速查页脚本（自包含无依赖） -->
     <script src="js/httpref.js"></script>
     <script src="js/csvtool.js"></script>
+    <!-- HMAC 计算 / HTML 实体 / 文本批量处理页脚本（自包含无依赖） -->
+    <script src="js/hmac.js"></script>
+    <script src="js/htmlentity.js"></script>
+    <script src="js/textkit.js"></script>
+    <!-- 图片压缩页脚本（canvas 离屏重绘，自包含无依赖） -->
+    <script src="js/imgcompress.js"></script>
+    <!-- SQL 格式化页：第三方库 sql-formatter 15.4.5（本地化，全局暴露 sqlFormatter）必须先于页面脚本加载 -->
+    <script src="js/vendor/sql-formatter.min.js"></script>
+    <script src="js/sql.js"></script>
 </body>
 </html>

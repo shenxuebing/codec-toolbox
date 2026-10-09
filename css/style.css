@@ -1477,3 +1477,53 @@ body {
 #cron-fields td:last-child {
     white-space: normal;
 }
+
+/* ---------- HMAC 计算 / HTML 实体 / 文本批量处理页（page-hmac / page-htmlentity / page-textkit） ---------- */
+/* （复用 .section/.input-group/.encoding-selector/.button-group/.result-container
+     /.gm-key-row/.radix-out-row/.query-table 等既有类，此处仅补充本页特有样式） */
+
+/* 选项行内的密钥输入框（同国密页口径：弹性伸展 + 等宽字体便于核对 Hex/Base64） */
+#page-hmac .encoding-selector input[type="text"] {
+    flex: 1;
+    min-width: 220px;
+    max-width: 520px;
+    padding: 7px 10px;
+    border: 2px solid #e9ecef;
+    border-radius: 6px;
+    font-size: 13px;
+    font-family: 'Courier New', monospace;
+    box-sizing: border-box;
+}
+
+#page-hmac .encoding-selector input[type="text"]:focus {
+    outline: none;
+    border-color: #667eea;
+}
+
+/* ---------- 图片压缩 / SQL 格式化页（page-imgcompress / page-sql） ---------- */
+/* （主体复用 .section/.encoding-selector/.button-group 等既有类，此处仅补充本页特有样式） */
+
+/* 质量滑块行：滑块与数值/说明同行垂直居中 */
+.imgc-quality-row input[type="range"] {
+    width: 180px;
+    vertical-align: middle;
+    accent-color: #667eea;
+    cursor: pointer;
+}
+
+/* 压缩结果：预览图与信息并排展示，窄屏自动换行 */
+.imgc-result-box {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-start;
+    gap: 16px;
+}
+
+.imgc-result-box img {
+    flex: 0 0 auto;
+}
+
+.imgc-result-box > div {
+    flex: 1 1 200px;
+    max-width: 520px;
+}

@@ -143,8 +143,9 @@
                         }
                     }
                     
-                    // 无法解码的字符
-                    result.push('?');
+                    // 无法解码的字符：输出 U+FFFD 替换符（与原生 TextDecoder 行为对齐，
+                    // 原先用 '?' 会与真实问号混淆，且页面二进制警告依赖 U+FFFD 计数）
+                    result.push('\uFFFD');
                     i++;
                 }
                 
