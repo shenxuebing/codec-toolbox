@@ -1,12 +1,12 @@
 // ============================================================
 // 增强版编解码工具 - 文本批量处理页（page-textkit）
 // 功能：多行文本按选项链式处理（去首尾空白 / 删空行 / 去重 / 排序 /
-//       转小写）+ 处理前后统计（字符 / 行 / 非空行 / UTF-8 字节数）
+//       转小写 / 转大写）+ 处理前后统计（字符 / 行 / 非空行 / UTF-8 字节数）
 // 依赖（须先于本文件加载）：
 //   js/app.js → showNotification / copyToClipboard
 // 处理口径：
 //   顺序固定 trim → 删空行 → 去重（Set 保持首次出现）→
-//   排序（localeCompare，可选降序）→ 转小写；
+//   排序（localeCompare，可选降序）→ 转小写/转大写（二者互斥）；
 //   未勾选任何处理选项时只统计不修改文本（结果 = 原文）
 // ============================================================
 
@@ -25,7 +25,7 @@ function textkitSplitLines(text) {
 }
 
 // 行数组按选项链式处理（顺序固定，见文件头注释）
-//   opts: { trim, rmempty, dedupe, sort, desc, lower } 均为布尔
+//   opts: { trim, rmempty, dedupe, sort, desc, lower, upper } 均为布尔
 function textkitProcessLines(lines, opts) {
     var out = lines.slice();
     var i;
@@ -50,6 +50,9 @@ function textkitProcessLines(lines, opts) {
     }
     if (opts.lower) {
         for (i = 0; i < out.length; i++) { out[i] = out[i].toLowerCase(); }
+    }
+    if (opts.upper) {
+        for (i = 0; i < out.length; i++) { out[i] = out[i].toUpperCase(); }
     }
     return out;
 }
@@ -103,8 +106,17 @@ function textkitGetOptions() {
         dedupe: document.getElementById('textkit-dedupe').checked,
         sort: document.getElementById('textkit-sort').checked,
         desc: document.getElementById('textkit-sort-desc').checked,
-        lower: document.getElementById('textkit-lower').checked
+        lower: document.getElementById('textkit-lower').checked,
+        upper: document.getElementById('textkit-upper').checked
     };
+}
+
+// 转小写 / 转大写互斥（与 sm4ModeChanged 同样的内联 onchange 联动模式）：
+// 勾选其一时自动取消另一个，避免两个大小写选项同时生效
+function textkitOnCaseChange(which) {
+    var self = document.getElementById(which === 'lower' ? 'textkit-lower' : 'textkit-upper');
+    var other = document.getElementById(which === 'lower' ? 'textkit-upper' : 'textkit-lower');
+    if (self.checked && other.checked) { other.checked = false; }
 }
 
 // "处理"按钮：统计 → 按需链式处理 → 写结果与统计区（含前后对比）
@@ -123,7 +135,7 @@ function textkitRun() {
     var before = textkitStatsOf(text);
 
     var outText = text;
-    var anyOption = opts.trim || opts.rmempty || opts.dedupe || opts.sort || opts.lower;
+    var anyOption = opts.trim || opts.rmempty || opts.dedupe || opts.sort || opts.lower || opts.upper;
     if (anyOption) {
         outText = textkitProcessLines(textkitSplitLines(text), opts).join('\n');
     } // 未勾选任何处理选项：只统计不修改，结果为原文
@@ -175,6 +187,7 @@ if (typeof module !== 'undefined' && module.exports) {
         textkitStatsOf: textkitStatsOf,
         textkitByteLength: textkitByteLength,
         textkitFormatStats: textkitFormatStats,
+        textkitOnCaseChange: textkitOnCaseChange,
         textkitRun: textkitRun,
         textkitDownload: textkitDownload,
         textkitClear: textkitClear
