@@ -1527,3 +1527,26 @@ body {
     flex: 1 1 200px;
     max-width: 520px;
 }
+
+/* ---------- X.509 证书查看页（page-cert） ---------- */
+/* （复用 .query-table/.file-drop-zone/.jwt-valid/.jwt-invalid/.input-group
+     等既有类，此处仅补充错误提示块与结果区内的表格紧凑间距） */
+
+/* 解析错误提示块（同 ASN.1 页口径） */
+.cert-error {
+    color: #dc3545;
+    padding: 8px 10px;
+    word-break: break-all;
+    white-space: pre-wrap;
+}
+
+/* 结果区多个 query-table 块之间的纵向间距收紧（.input-group 自带 margin-bottom） */
+.cert-result .query-table {
+    margin-bottom: 2px;
+}
+
+/* 标签列固定宽度不换行，值列占满余宽 */
+.cert-result .query-table th {
+    width: 140px;
+    white-space: nowrap;
+}

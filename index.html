@@ -26,6 +26,7 @@
             <button type="button" class="menu-item" data-page="page-gmsm"><span class="menu-icon">🛡️</span><span class="menu-text">国密 SM2/SM4</span></button>
             <button type="button" class="menu-item" data-page="page-hmac"><span class="menu-icon">🔏</span><span class="menu-text">HMAC 计算</span></button>
             <button type="button" class="menu-item" data-page="page-asn1"><span class="menu-icon">🧬</span><span class="menu-text">ASN.1 查看器</span></button>
+            <button type="button" class="menu-item" data-page="page-cert"><span class="menu-icon">🪪</span><span class="menu-text">证书查看</span></button>
             <button type="button" class="menu-item" data-page="page-file"><span class="menu-icon">📁</span><span class="menu-text">文件工具</span></button>
             <button type="button" class="menu-item" data-page="page-timestamp"><span class="menu-icon">🕐</span><span class="menu-text">时间戳转换</span></button>
             <button type="button" class="menu-item" data-page="page-jwt"><span class="menu-icon">🔑</span><span class="menu-text">JWT 工具</span></button>
@@ -697,6 +698,33 @@
                         <div id="asn1-tree" class="asn1-tree">解析后此处按层级展示 TLV 树（tag 名 / 偏移与长度 / 内容预览）</div>
                     </div>
                     <p class="tool-hint">💡 支持 PEM（多块取第一个）、纯 Base64、Hex 三种输入，自动识别；OCTET STRING 内容若恰为合法 DER 会自动展开并标注 [内嵌 DER]（PKCS#8 / 信封常见）；嵌套超过 16 层自动中止；解析错误会定位到具体字节位置。</p>
+                </div>
+            </div>
+
+            <!-- X.509 证书查看器（依赖 js/asn1.js 的 DER 解析函数，按证书语义结构化展示字段） -->
+            <div id="page-cert" class="page">
+                <div class="section">
+                    <h2>🪪 X.509 证书查看器</h2>
+                    <div class="input-group">
+                        <label>输入证书（PEM / Base64 / Hex）</label>
+                        <textarea id="cert-input" rows="8" placeholder="粘贴 PEM（-----BEGIN CERTIFICATE-----）或 Base64/Hex 编码的 DER 证书..."></textarea>
+                    </div>
+                    <div class="input-group">
+                        <label>或从文件加载</label>
+                        <!-- 拖拽/点击二合一的文件选择区：隐藏的 input 实际负责弹出文件选择框 -->
+                        <div id="cert-drop-zone" class="file-drop-zone">
+                            拖拽证书文件到此处，或点击选择文件（.cer / .crt / .pem / .der）
+                            <input type="file" id="cert-file-input" accept=".cer,.crt,.pem,.der" style="display:none;">
+                        </div>
+                    </div>
+                    <div class="button-group">
+                        <button type="button" class="btn btn-primary" onclick="certRun()">解析证书</button>
+                        <button type="button" class="btn btn-secondary" onclick="certOpenInAsn1()">用 ASN.1 树查看</button>
+                        <button type="button" class="btn btn-secondary" onclick="certClear()">清空</button>
+                    </div>
+                    <!-- 解析结果：由 js/cert.js 全 DOM API 动态渲染（基本信息 / DN / 有效期 / 公钥 / 扩展 / 签名值） -->
+                    <div id="cert-result" class="cert-result"></div>
+                    <p class="tool-hint">💡 支持 PEM / Base64 / Hex 输入与国密 SM2 证书（SM2/SM3 算法 OID 自动标注国密）；keyUsage / basicConstraints / SAN / EKU 等常用扩展结构化展示，其余扩展显示 Hex 截断（完整内容可点"用 ASN.1 树查看"逐节点核对）；本工具只做结构解析，不校验签名。</p>
                 </div>
             </div>
 
@@ -1779,6 +1807,8 @@
     <script src="js/gmsm.js"></script>
     <!-- ASN.1 查看器页脚本（DER TLV 解析，自包含无依赖） -->
     <script src="js/asn1.js"></script>
+    <!-- X.509 证书查看页脚本（复用 asn1.js 的全局解析函数，必须在其后加载） -->
+    <script src="js/cert.js"></script>
     <!-- 进制转换 / UUID 生成页脚本（自包含无依赖） -->
     <script src="js/radix.js"></script>
     <script src="js/uuid.js"></script>
