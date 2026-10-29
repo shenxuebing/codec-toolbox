@@ -1,10 +1,13 @@
 // ============================================================
-// UUID 生成器（page-uuid）
+// ID 生成器（page-uuid：UUID v4/v7 + NanoID + ULID）
 // - v4：纯随机（crypto.getRandomValues 16 字节，置 version/variant 位）
 // - v7：按 RFC 9562 布局，前 48 位为毫秒时间戳（大端），
 //   时间上整体递增，适合做数据库主键 / 排序键；
 //   同一毫秒内多次生成天然有序（时间戳相同），但随机部分仍随机，
 //   不保证严格单调（RFC 允许 rand_a 做单调计数器，此处采用全随机实现）
+// - NanoID：64 字符表（A-Za-z0-9_-）随机串，默认 21 位（熵 ≈ 126 bit）
+// - ULID：26 字符 Crockford Base32，前 10 字符编码 48 位毫秒时间戳，
+//   随时间单调递增（同一毫秒内随机部分仍随机，不保证严格单调）
 // 随机数全部来自浏览器密码学随机源 crypto.getRandomValues，离线可用。
 // ============================================================
 
@@ -81,14 +84,34 @@ function uuidGenerate() {
         return;
     }
 
-    var version = uuidGetRadio('uuid-version');           // v4 / v7
+    var version = uuidGetRadio('uuid-version');           // v4 / v7 / nanoid / ulid
     var upper = uuidGetRadio('uuid-case') === 'upper';    // 小写 / 大写
     var noHyphen = document.getElementById('uuid-hyphen').checked; // 去连字符
 
+    // NanoID 长度校验（仅 nanoid 模式使用）
+    var nanoLen = 0;
+    if (version === 'nanoid') {
+        nanoLen = Number(document.getElementById('uuid-nanoid-len').value);
+        if (!Number.isInteger(nanoLen) || nanoLen < 6 || nanoLen > 128) {
+            showNotification('NanoID 长度必须是 6-128 之间的整数');
+            return;
+        }
+    }
+
     var lines = [];
     for (var i = 0; i < count; i++) {
-        var bytes = (version === 'v7') ? uuidV7Bytes() : uuidV4Bytes();
-        lines.push(uuidFormatBytes(bytes, upper, noHyphen));
+        if (version === 'nanoid') {
+            // NanoID 无连字符（"去连字符"选项天然忽略）；
+            // 字符表本身混合大小写且无版本位含义，大小写转换选项同样忽略
+            lines.push(uuidNanoIdBytes(nanoLen));
+        } else if (version === 'ulid') {
+            // ULID 固定使用大写 Crockford 表且无连字符，
+            // 大小写转换与去连字符选项均忽略（转为小写会破坏规范编码）
+            lines.push(uuidUlidBytes());
+        } else {
+            var bytes = (version === 'v7') ? uuidV7Bytes() : uuidV4Bytes();
+            lines.push(uuidFormatBytes(bytes, upper, noHyphen));
+        }
     }
     document.getElementById('uuid-result').textContent = lines.join('\n');
     showNotification('已生成 ' + count + ' 个');
@@ -99,11 +122,77 @@ function uuidClear() {
     document.getElementById('uuid-result').textContent = '';
 }
 
+// ============================================================
+// NanoID / ULID 生成（函数名沿用 uuid 前缀与 Bytes 后缀，便于统一导出对拍）
+// ============================================================
+
+// NanoID 标准字符表：64 字符（大小写字母 + 数字 + _ -），每字符 6 bit 信息量
+var UUID_NANOID_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-';
+// ULID 采用 Crockford Base32：0-9 与 22 个字母，排除 I L O U 防止与 1/0 形近混淆
+var UUID_ULID_ALPHABET = '0123456789ABCDEFGHJKMNPQRSTVWXYZ';
+
+// 拒绝采样取 [0, max) 的均匀随机整数：
+// 丢弃落在非完整区间 [limit, 2^32) 的样本后再取模，避免模偏差
+function uuidRandomIndex(max) {
+    var limit = Math.floor(4294967296 / max) * max;
+    var buf = new Uint32Array(1);
+    while (true) {
+        crypto.getRandomValues(buf);
+        if (buf[0] < limit) {
+            return buf[0] % max;
+        }
+    }
+}
+
+// 生成一个 NanoID 字符串（默认 21 字符，标准默认长度，熵 ≈ 21 × 6 = 126 bit）
+function uuidNanoIdBytes(len) {
+    len = len || 21;
+    var chars = [];
+    for (var i = 0; i < len; i++) {
+        chars.push(UUID_NANOID_ALPHABET.charAt(uuidRandomIndex(64)));
+    }
+    return chars.join('');
+}
+
+// 生成一个 ULID 字符串：固定 26 字符 Crockford Base32
+//   前 10 字符 = 48 位毫秒时间戳（大端，高位在前）→ 随时间单调递增
+//   后 16 字符 = 80 位密码学随机数
+function uuidUlidBytes() {
+    // 10 字节随机数恰好覆盖 80 位随机部分
+    var bytes = new Uint8Array(10);
+    crypto.getRandomValues(bytes);
+    var out = [];
+    // 48 位时间戳按 5 bit 一组拆成 10 组（10×5=50 位，最高 2 组恒 0，即时间戳左补零）
+    var ts = BigInt(Date.now()) & 0xffffffffffffn;
+    for (var i = 9; i >= 0; i--) {
+        out[i] = Number(ts & 0x1fn);
+        ts >>= 5n;
+    }
+    // 80 位随机数按 5 bit 一组拆成 16 组（g=0 为最高位组）：
+    // 以 16 bit 滑动窗口对齐后右移取 5 位
+    for (var g = 0; g < 16; g++) {
+        var bitStart = g * 5;
+        var byteIdx = Math.floor(bitStart / 8);
+        var bitOff = bitStart % 8;
+        var window = (bytes[byteIdx] << 8) | (byteIdx + 1 < 10 ? bytes[byteIdx + 1] : 0);
+        var five = (window >> (11 - bitOff)) & 0x1f;
+        out.push(five);
+    }
+    // 组号 → Crockford Base32 字符
+    var chars = [];
+    for (var j = 0; j < out.length; j++) {
+        chars.push(UUID_ULID_ALPHABET.charAt(out[j]));
+    }
+    return chars.join('');
+}
+
 // Node 环境导出纯生成函数（浏览器中 module 未定义，此块自动跳过，便于对拍自测）
 if (typeof module !== 'undefined' && module.exports) {
     module.exports = {
         uuidV4Bytes: uuidV4Bytes,
         uuidV7Bytes: uuidV7Bytes,
-        uuidFormatBytes: uuidFormatBytes
+        uuidFormatBytes: uuidFormatBytes,
+        uuidNanoIdBytes: uuidNanoIdBytes,
+        uuidUlidBytes: uuidUlidBytes
     };
 }

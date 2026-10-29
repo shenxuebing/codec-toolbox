@@ -583,6 +583,29 @@ function gmCompatDecryptString(enDataStr) {
 }
 
 // 页面入口：按方向单选执行加密/解密
+// Hex 转储多行格式：偏移(4位hex) + 前8字节 + 后8字节 + 右侧 ASCII 预览，
+// 便于人工按行对照/分段复制（与常见 hexdump 工具观感一致）
+function gmHexDumpLines(bytes) {
+    var lines = [];
+    for (var off = 0; off < bytes.length; off += 16) {
+        var hexCells = [];
+        var ascii = '';
+        for (var i = 0; i < 16; i++) {
+            if (off + i < bytes.length) {
+                var b = bytes[off + i];
+                hexCells.push((b < 16 ? '0' : '') + b.toString(16).toUpperCase());
+                ascii += (b >= 0x20 && b < 0x7F) ? String.fromCharCode(b) : '.';
+            } else {
+                hexCells.push('  ');
+                ascii += ' ';
+            }
+        }
+        var offsetLabel = ('0000' + off.toString(16).toUpperCase()).slice(-4);
+        lines.push(offsetLabel + '  ' + hexCells.slice(0, 8).join(' ') + '  ' + hexCells.slice(8).join(' ') + '  ' + ascii);
+    }
+    return lines.join('\n');
+}
+
 function gmCompatRun() {
     var resultEl = document.getElementById('gm-compat-result');
     var input = document.getElementById('gm-compat-input').value;
@@ -607,8 +630,9 @@ function gmCompatRun() {
             var replaced = (utf8Text.match(/\uFFFD/g) || []).length;
             resultEl.textContent = '明文（' + r.bytes.length + ' 字节）：\n' +
                 (replaced === 0 ? utf8Text : utf8Text + '\n[含 ' + replaced + ' 个无法按 UTF-8 解码的字节，二进制数据请看下方 Hex]\n') +
-                'Hex：' + gmBytesToHex(r.bytes).toUpperCase() +
-                '\n——\n派生密钥：' + r.key.toUpperCase() + '（由固定 yKey + 随机数 ' + r.random + ' 派生）';
+                'Hex（每行 16 字节，带偏移）：\n' + gmHexDumpLines(r.bytes) +
+                '\nHex（单行复制用）：' + gmBytesToHex(r.bytes).toUpperCase() +
+                '\n——\n派生密钥：' + gmBytesToHex(r.key).toUpperCase() + '（由固定 yKey + 随机数 ' + r.random + ' 派生）';
             showNotification('已解密（EnDataUtil 兼容格式）');
         }
     } catch (e) {

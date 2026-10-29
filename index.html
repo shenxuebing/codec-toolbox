@@ -21,6 +21,7 @@
             <button type="button" class="menu-item" data-page="page-url"><span class="menu-icon">🔗</span><span class="menu-text">URL 工具</span></button>
             <button type="button" class="menu-item" data-page="page-unicode"><span class="menu-icon">🇺🇳</span><span class="menu-text">Unicode 转换</span></button>
             <button type="button" class="menu-item" data-page="page-random"><span class="menu-icon">🎲</span><span class="menu-text">随机字节</span></button>
+            <button type="button" class="menu-item" data-page="page-passgen"><span class="menu-icon">🔑</span><span class="menu-text">密码生成</span></button>
             <button type="button" class="menu-item" data-page="page-hash"><span class="menu-icon">🔒</span><span class="menu-text">哈希计算</span></button>
             <button type="button" class="menu-item" data-page="page-gmsm"><span class="menu-icon">🛡️</span><span class="menu-text">国密 SM2/SM4</span></button>
             <button type="button" class="menu-item" data-page="page-hmac"><span class="menu-icon">🔏</span><span class="menu-text">HMAC 计算</span></button>
@@ -136,11 +137,13 @@
             <!-- UUID 生成：v4 随机 / v7 时间戳有序，支持批量与大小写/去连字符选项 -->
             <div id="page-uuid" class="page">
                 <div class="section">
-                    <h2>🆔 UUID 生成器</h2>
+                    <h2>🆔 ID 生成器（UUID / NanoID / ULID）</h2>
                     <div class="encoding-selector">
                         <label style="margin-right: 12px; font-weight: bold; color: #333;">版本：</label>
                         <label><input type="radio" name="uuid-version" value="v4" checked><span>v4（随机）</span></label>
                         <label><input type="radio" name="uuid-version" value="v7"><span>v7（时间戳有序）</span></label>
+                        <label><input type="radio" name="uuid-version" value="nanoid"><span>NanoID</span></label>
+                        <label><input type="radio" name="uuid-version" value="ulid"><span>ULID</span></label>
                         <label style="margin-right: 12px; margin-left: 20px; font-weight: bold; color: #333;">数量：</label>
                         <input type="number" id="uuid-count" value="10" min="1" max="1000">
                     </div>
@@ -149,6 +152,8 @@
                         <label><input type="radio" name="uuid-case" value="lower" checked><span>小写</span></label>
                         <label><input type="radio" name="uuid-case" value="upper"><span>大写</span></label>
                         <label><input type="checkbox" id="uuid-hyphen"><span>去连字符</span></label>
+                        <label style="margin-right: 12px; margin-left: 20px; font-weight: bold; color: #333;">NanoID 长度：</label>
+                        <input type="number" id="uuid-nanoid-len" value="21" min="6" max="128">
                     </div>
                     <div class="button-group">
                         <button type="button" class="btn btn-primary" onclick="uuidGenerate()">生成</button>
@@ -273,6 +278,46 @@
                             <button class="copy-btn" onclick="copyToClipboard('random-result')">复制</button>
                         </div>
                     </div>
+                </div>
+            </div>
+
+            <!-- 密码生成器：可配置字符集 / 长度 / 批量，crypto.getRandomValues 拒绝采样 -->
+            <div id="page-passgen" class="page">
+                <div class="section">
+                    <h2>🔑 密码生成器</h2>
+                    <div class="input-group">
+                        <label>密码长度: <span id="passgen-len-value">16</span></label>
+                        <input type="range" id="passgen-length" min="4" max="128" value="16" style="width:100%;">
+                    </div>
+                    <div class="encoding-selector">
+                        <label style="margin-right: 12px; font-weight: bold; color: #333;">字符集：</label>
+                        <label><input type="checkbox" id="passgen-upper" checked><span>大写字母 (A-Z)</span></label>
+                        <label><input type="checkbox" id="passgen-lower" checked><span>小写字母 (a-z)</span></label>
+                        <label><input type="checkbox" id="passgen-digit" checked><span>数字 (0-9)</span></label>
+                        <label><input type="checkbox" id="passgen-symbol" checked><span>符号 (!@#$%^&*)</span></label>
+                    </div>
+                    <div class="encoding-selector">
+                        <label style="margin-right: 12px; font-weight: bold; color: #333;">附加选项：</label>
+                        <label><input type="checkbox" id="passgen-no-ambiguous" checked><span>排除易混淆字符 (0O1lI)</span></label>
+                        <label><input type="checkbox" id="passgen-ensure-each"><span>保证每类至少 1 个</span></label>
+                    </div>
+                    <div class="input-group">
+                        <label>生成数量</label>
+                        <input type="number" id="passgen-count" value="1" min="1" max="100" style="width:100%;max-width:220px;padding:10px;border:2px solid #e9ecef;border-radius:6px;font-size:14px;box-sizing:border-box;">
+                    </div>
+                    <div class="button-group">
+                        <button type="button" class="btn btn-primary" onclick="passgenRun()">生成密码</button>
+                        <button type="button" class="btn btn-secondary" onclick="passgenClear()">清空</button>
+                    </div>
+                    <div class="input-group">
+                        <label>生成结果（每个密码可单独复制）</label>
+                        <!-- 每个密码一行：只读框 + 独立复制按钮（与 HMAC 结果行同款式） -->
+                        <div id="passgen-result"></div>
+                    </div>
+                    <div class="result-container">
+                        <div class="result-area gm-oneline" id="passgen-strength"></div>
+                    </div>
+                    <p class="tool-hint">💡 安全提示：密码至少 12 个字符；包含大小写字母、数字和符号；不要使用生日、姓名等个人信息；每个账户使用不同密码；定期更换密码。</p>
                 </div>
             </div>
 
@@ -1175,7 +1220,7 @@
                 </div>
             </div>
 
-            <!-- 文本批量处理：去空白 / 删空行 / 去重 / 排序 / 转小写 链式处理 + 统计 -->
+            <!-- 文本批量处理：去空白 / 删空行 / 去重 / 排序 / 转小写·转大写 链式处理 + 统计 -->
             <div id="page-textkit" class="page">
                 <div class="section">
                     <h2>🧹 文本批量处理</h2>
@@ -1195,7 +1240,8 @@
                         <label><input type="checkbox" id="textkit-dedupe"><span>行去重（保持首次出现）</span></label>
                         <label><input type="checkbox" id="textkit-sort"><span>行排序</span></label>
                         <label><input type="checkbox" id="textkit-sort-desc"><span>降序</span></label>
-                        <label><input type="checkbox" id="textkit-lower"><span>转小写</span></label>
+                        <label><input type="checkbox" id="textkit-lower" onchange="textkitOnCaseChange('lower')"><span>转小写</span></label>
+                        <label><input type="checkbox" id="textkit-upper" onchange="textkitOnCaseChange('upper')"><span>转大写</span></label>
                     </div>
                     <div class="button-group">
                         <button type="button" class="btn btn-primary" onclick="textkitRun()">处理</button>
@@ -1216,7 +1262,7 @@
                             <button class="btn btn-secondary" onclick="textkitDownload()">下载 .txt</button>
                         </div>
                     </div>
-                    <p class="tool-hint">💡 处理顺序固定为：去行首尾空白 → 删除空行 → 行去重 → 行排序（localeCompare 本地化比较，可选降序）→ 转小写；"降序"仅在勾选"行排序"时生效；未勾选任何处理选项时只统计不修改文本；统计模式决定统计行中"字符数/行数"哪个排在首位。</p>
+                    <p class="tool-hint">💡 处理顺序固定为：去行首尾空白 → 删除空行 → 行去重 → 行排序（localeCompare 本地化比较，可选降序）→ 转小写/转大写（二者互斥，勾选其一时自动取消另一个）；"降序"仅在勾选"行排序"时生效；未勾选任何处理选项时只统计不修改文本；统计模式决定统计行中"字符数/行数"哪个排在首位。</p>
                 </div>
             </div>
 
@@ -1736,6 +1782,8 @@
     <!-- 进制转换 / UUID 生成页脚本（自包含无依赖） -->
     <script src="js/radix.js"></script>
     <script src="js/uuid.js"></script>
+    <!-- 密码生成器页脚本（crypto.getRandomValues 拒绝采样，自包含无依赖） -->
+    <script src="js/passgen.js"></script>
     <!-- 正则测试器 / 文本 Diff 页脚本（自包含无依赖） -->
     <script src="js/regex.js"></script>
     <script src="js/diff.js"></script>
