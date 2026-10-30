@@ -1626,3 +1626,81 @@ body {
 
 /* 其余未分类 tag：中性灰 */
 .asn1-badge-other { background: #f1f3f5; color: #495057; }
+
+/* ============================================================
+   OID 查询页（page-oid）
+   （复用 .section/.input-group/.button-group/.result-container
+     /.result-area/.gm-oneline/.encoding-selector/.query-table
+     /.httpref-wrap/.httpref-count 等既有类，此处仅补充信息卡与表格行样式）
+   ============================================================ */
+
+/* 查询结果信息卡：键值行布局（result-area 本身为等宽字体容器） */
+.oid-card {
+    line-height: 1.8;
+}
+
+/* 信息卡标题行：中文名 + 英文名（灰） */
+.oid-card-title {
+    font-weight: 600;
+    font-size: 14px;
+    margin-bottom: 2px;
+}
+
+.oid-card-en {
+    font-weight: normal;
+    color: #868e96;
+    font-size: 12px;
+    margin-left: 8px;
+}
+
+/* 单行键值：定宽键列 + 占满余宽的值列 */
+.oid-card-row {
+    display: flex;
+    gap: 10px;
+    font-size: 13px;
+}
+
+.oid-k {
+    flex: 0 0 72px;
+    color: #868e96;
+    user-select: none;
+}
+
+.oid-v {
+    flex: 1;
+    word-break: break-all;
+}
+
+/* DER 编码等十六进制值：字号略收 */
+.oid-mono {
+    font-size: 13px;
+}
+
+/* 信息卡内备注行 / 空结果提示 */
+.oid-card-note {
+    font-size: 12px;
+    color: #868e96;
+    margin-top: 6px;
+}
+
+/* 错误提示（红色） */
+.oid-error {
+    color: #dc3545;
+}
+
+/* 库表英文名补充（灰色小字） */
+.oid-en {
+    color: #868e96;
+    font-size: 11px;
+}
+
+/* 浏览表 / 结果列表行可点击：手型 + 悬停高亮（提示可回填查询） */
+#oid-table-container table tbody tr[data-oid],
+#oid-result table tbody tr[data-oid] {
+    cursor: pointer;
+}
+
+#oid-table-container table tbody tr[data-oid]:hover,
+#oid-result table tbody tr[data-oid]:hover {
+    background: #eef1ff;
+}

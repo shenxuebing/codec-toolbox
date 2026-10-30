@@ -27,6 +27,7 @@
             <button type="button" class="menu-item" data-page="page-hmac"><span class="menu-icon">🔏</span><span class="menu-text">HMAC 计算</span></button>
             <button type="button" class="menu-item" data-page="page-asn1"><span class="menu-icon">🧬</span><span class="menu-text">ASN.1 查看器</span></button>
             <button type="button" class="menu-item" data-page="page-cert"><span class="menu-icon">🪪</span><span class="menu-text">证书查看</span></button>
+            <button type="button" class="menu-item" data-page="page-oid"><span class="menu-icon">🧭</span><span class="menu-text">OID 查询</span></button>
             <button type="button" class="menu-item" data-page="page-file"><span class="menu-icon">📁</span><span class="menu-text">文件工具</span></button>
             <button type="button" class="menu-item" data-page="page-timestamp"><span class="menu-icon">🕐</span><span class="menu-text">时间戳转换</span></button>
             <button type="button" class="menu-item" data-page="page-jwt"><span class="menu-icon">🔑</span><span class="menu-text">JWT 工具</span></button>
@@ -727,6 +728,56 @@
                     <!-- 解析结果：由 js/cert.js 全 DOM API 动态渲染（基本信息 / DN / 有效期 / 公钥 / 扩展 / 签名值） -->
                     <div id="cert-result" class="cert-result"></div>
                     <p class="tool-hint">💡 支持 PEM / Base64 / Hex 输入与国密 SM2 证书（SM2/SM3 算法 OID 自动标注国密）；keyUsage / basicConstraints / SAN / EKU 等常用扩展结构化展示，其余扩展显示 Hex 截断（完整内容可点"用 ASN.1 树查看"逐节点核对）；本工具只做结构解析，不校验签名。</p>
+                </div>
+            </div>
+
+            <!-- OID 查询页：点分 OID / DER Hex / 名称关键字 三种输入互查 + Hex↔OID 互转 + 内置库浏览 -->
+            <div id="page-oid" class="page">
+                <div class="section">
+                    <h2>🧭 OID 查询（PKI / 密码）</h2>
+                    <div class="input-group">
+                        <label>输入 OID / Hex / 关键字</label>
+                        <input type="text" id="oid-input" placeholder="点分 OID（1.2.156.10197.1.301）、DER Hex（2A811CCF5501822D，可带 06 长度头）、或名称关键字（SM2 / keyUsage）" autocomplete="off">
+                    </div>
+                    <div class="button-group">
+                        <button type="button" class="btn btn-primary" onclick="oidRun()">查询</button>
+                        <button type="button" class="btn btn-secondary" onclick="oidHexToOid()">Hex → OID</button>
+                        <button type="button" class="btn btn-secondary" onclick="oidOidToHex()">OID → Hex</button>
+                        <button type="button" class="btn btn-secondary" onclick="oidClear()">清空</button>
+                    </div>
+                    <!-- 查询结果：由 js/oidtool.js 动态渲染（信息卡 / 分支提示 / 关键字命中列表） -->
+                    <div class="input-group">
+                        <label>查询结果</label>
+                        <div class="result-container">
+                            <div class="result-area" id="oid-result">输入点分 OID / DER Hex / 名称关键字后点击"查询"</div>
+                            <button class="copy-btn" onclick="copyToClipboard('oid-result')">复制</button>
+                        </div>
+                    </div>
+                    <!-- 互转结果：Hex ↔ OID 单行展示（复制为无空格紧凑串） -->
+                    <div class="input-group">
+                        <label>互转结果</label>
+                        <div class="result-container">
+                            <div class="result-area gm-oneline" id="oid-convert">Hex ↔ OID 互转结果显示在此</div>
+                            <button class="copy-btn" onclick="oidCopyConvert()">复制</button>
+                        </div>
+                    </div>
+                    <h3>内置 OID 库浏览</h3>
+                    <div class="input-group">
+                        <label>搜索</label>
+                        <input type="text" id="oid-search" placeholder="按 OID / 名称 / 出处过滤，如 10197、SM3、RFC 4055" autocomplete="off">
+                    </div>
+                    <div class="encoding-selector">
+                        <label style="margin-right: 12px; font-weight: bold; color: #333;">分类：</label>
+                        <label><input type="radio" name="oid-cat" value="all" checked><span>全部</span></label>
+                        <label><input type="radio" name="oid-cat" value="国密"><span>国密</span></label>
+                        <label><input type="radio" name="oid-cat" value="RSA与PKCS"><span>RSA 与 PKCS</span></label>
+                        <label><input type="radio" name="oid-cat" value="ECC与NIST"><span>ECC 与 NIST</span></label>
+                        <label><input type="radio" name="oid-cat" value="X.509与DN"><span>X.509 与 DN</span></label>
+                        <label><input type="radio" name="oid-cat" value="EKU与AIA"><span>EKU 与 AIA</span></label>
+                    </div>
+                    <!-- 表格行由 js/oidtool.js 动态生成（分类单选 + 搜索实时过滤），点击行回填查询 -->
+                    <div id="oid-table-container"></div>
+                    <p class="tool-hint">💡 输入自动识别三种形态：点分 OID 精确查库（未收录时按 1.2.156.10197 国密 / 1.2.840.113549 RSA 等顶层分支给出归属提示）、DER Hex 自动剥离 06 长度头后解码、名称关键字跨 OID/名称/出处模糊搜索；互转为 base-128 自实现，展示带空格 Hex、复制为紧凑串（悬浮 title 同步显示紧凑版）；点击库表行可回填输入框直接查询。</p>
                 </div>
             </div>
 
@@ -1811,6 +1862,8 @@
     <script src="js/asn1.js"></script>
     <!-- X.509 证书查看页脚本（复用 asn1.js 的全局解析函数，必须在其后加载） -->
     <script src="js/cert.js"></script>
+    <!-- OID 查询页脚本（内置 OID 库 + Hex/点分互转，自包含无依赖） -->
+    <script src="js/oidtool.js"></script>
     <!-- 进制转换 / UUID 生成页脚本（自包含无依赖） -->
     <script src="js/radix.js"></script>
     <script src="js/uuid.js"></script>
