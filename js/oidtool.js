@@ -85,6 +85,18 @@ var OID_DB = [
     // 服务机构与标准体系
     { oid: '1.2.156.10197.4.3', name: '密码服务机构', nameEn: 'Cryptographic Service Organizations', cat: '国密', source: 'GM/T 0006-2023《密码应用标识规范》', desc: '密码服务机构分支：.1 电子认证服务机构（CA）/ .2 标识密钥管理机构 / .3 电子政务电子认证服务机构' },
     { oid: '1.2.156.10197.6', name: '密码标准体系', nameEn: 'Cryptographic Standard System', cat: '国密', source: 'GM/T 0006-2023《密码应用标识规范》', desc: '密码标准体系分支：.1 基础类（算法/标识/工作模式/安全机制）/ .2 设备类 / .3 服务类 / .4 基础设施（.4.1 证书管理协议）/ .5 检测类 / .6 管理类' },
+    // 标准文档标识（1.2.156.10197.6.1.x，各 GM 标准在此分配标识）
+    { oid: '1.2.156.10197.6.1.4.1', name: 'GM/T 0009《SM2 密码算法使用规范》', nameEn: 'SM2 Cryptographic Algorithm Usage Specification', cat: '国密', source: 'GM/T 0009-2012 / GM/T 0006-2023', desc: 'SM2 算法使用规范标准标识，定义密钥/加密/签名数据格式与口令密钥派生；子项：.5 口令密钥派生机制、.10 证书申请语法（GM/T 0092）、.12 证书与密钥交换格式（GM/T 0093）' },
+    { oid: '1.2.156.10197.6.1.4.1.5', name: 'SM2 口令密钥派生机制', nameEn: 'SM2 Password-based Key Derivation', cat: '国密', source: 'GM/T 0009-2012 / GM/T 0006-2023', desc: '由口令派生 SM2 密钥的机制标识（口令加密保护私钥场景）' },
+    { oid: '1.2.156.10197.6.1.4.1.10', name: '证书申请语法规范（GM/T 0092）', nameEn: 'Certificate Request Syntax', cat: '国密', source: 'GM/T 0092-2020 / GM/T 0006-2023', desc: '基于 SM2 算法的证书申请语法规范标准标识（PKCS#10 的国密对应版本）' },
+    { oid: '1.2.156.10197.6.1.4.1.12', name: '证书与密钥交换格式规范（GM/T 0093）', nameEn: 'Certificate and Key Exchange Format', cat: '国密', source: 'GM/T 0093-2020 / GM/T 0006-2023', desc: '证书与密钥交换格式规范标准标识（PKCS#12 的国密对应版本，.pfx/.p12 国密信封）' },
+    { oid: '1.2.156.10197.6.1.4.2', name: 'GM/T 0010《SM2 密码算法加密签名消息语法规范》', nameEn: 'SM2 Cryptographic Message Syntax', cat: '国密', source: 'GM/T 0010-2012/2023 / GM/T 0006-2023', desc: '国密版 CMS/PKCS#7 消息语法标准标识（对应 GB/T 35275），内容类型见 .1~.6；OFD 电子签章等场景实际使用' },
+    { oid: '1.2.156.10197.6.1.4.2.1', name: 'sm2Data（数据类型）', nameEn: 'sm2Data', cat: '国密', source: 'GM/T 0010-2012《SM2 密码算法加密签名消息语法规范》', desc: '纯数据内容类型（对应 PKCS#7 的 data）' },
+    { oid: '1.2.156.10197.6.1.4.2.2', name: 'sm2SignedData（签名数据类型）', nameEn: 'sm2SignedData', cat: '国密', source: 'GM/T 0010-2012《SM2 密码算法加密签名消息语法规范》', desc: '签名数据内容类型（对应 PKCS#7 的 signedData），OFD 电子签章签名值常用此类型' },
+    { oid: '1.2.156.10197.6.1.4.2.3', name: 'sm2EnvelopedData（数字信封数据类型）', nameEn: 'sm2EnvelopedData', cat: '国密', source: 'GM/T 0010-2012《SM2 密码算法加密签名消息语法规范》', desc: '数字信封内容类型（对应 PKCS#7 的 envelopedData）：内容密钥用 SM2 公钥加密包裹' },
+    { oid: '1.2.156.10197.6.1.4.2.4', name: 'sm2SignedAndEnvelopedData（签名及数字信封数据类型）', nameEn: 'sm2SignedAndEnvelopedData', cat: '国密', source: 'GM/T 0010-2012《SM2 密码算法加密签名消息语法规范》', desc: '先签名后数字信封的复合内容类型（对应 PKCS#7 v1.5 的 signedAndEnvelopedData）' },
+    { oid: '1.2.156.10197.6.1.4.2.5', name: 'sm2EncryptedData（加密数据类型）', nameEn: 'sm2EncryptedData', cat: '国密', source: 'GM/T 0010-2012《SM2 密码算法加密签名消息语法规范》', desc: '加密数据内容类型（对应 PKCS#7 的 encryptedData）：仅对称加密，不含接收方公钥信息' },
+    { oid: '1.2.156.10197.6.1.4.2.6', name: 'sm2KeyAgreementInfo（密钥协商信息类型）', nameEn: 'sm2KeyAgreementInfo', cat: '国密', source: 'GM/T 0010-2012《SM2 密码算法加密签名消息语法规范》', desc: '密钥协商信息内容类型（PKCS#7 无对应项，国密扩充）' },
     // ---- RSA 与 PKCS（1.2.840.113549 RSADSI 分支）----
     { oid: '1.2.840.113549.1.1.1', name: 'rsaEncryption', nameEn: 'rsaEncryption', cat: 'RSA与PKCS', source: 'PKCS#1 / RFC 8017', desc: 'RSA 公钥算法标识，证书 / PKCS#8 公钥的 algorithm 字段' },
     { oid: '1.2.840.113549.1.1.4', name: 'md5WithRSAEncryption', nameEn: 'md5WithRSAEncryption', cat: 'RSA与PKCS', source: 'RFC 3279', desc: 'MD5 摘要 + RSA（PKCS#1 v1.5）签名算法（已不推荐）' },
