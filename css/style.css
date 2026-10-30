@@ -1550,3 +1550,79 @@ body {
     width: 140px;
     white-space: nowrap;
 }
+
+/* ============================================================
+   ASN.1 查看器（page-asn1）—— 树形重构补充样式
+   （tag 徽章分色 / 折叠箭头 / 层级缩进辅助线，
+     与上方基础 .asn1-* 样式叠加生效）
+   ============================================================ */
+
+/* 折叠箭头：定宽行首，点击切换子树显隐；叶子节点用同宽占位空 span 保持对齐 */
+.asn1-toggle {
+    display: inline-block;
+    width: 16px;
+    text-align: center;
+    color: #4c6ef5;
+    font-weight: bold;
+    cursor: pointer;
+    user-select: none;
+}
+
+.asn1-toggle:hover {
+    color: #3b5bdb;
+}
+
+.asn1-toggle-slot {
+    display: inline-block;
+    width: 16px;
+}
+
+/* 子树容器：每层缩进 20px（左外边距 11 + 左内边距 9），左侧竖线为层级辅助线 */
+.asn1-children {
+    margin-left: 11px;
+    padding-left: 9px;
+    border-left: 1px solid #d8dcef;
+}
+
+/* 折叠态：隐藏紧随折叠行之后的子树容器（相邻兄弟选择器） */
+.asn1-node.asn1-collapsed + .asn1-children {
+    display: none;
+}
+
+/* tag 徽章基样式：小圆角色块 */
+.asn1-badge {
+    display: inline-block;
+    padding: 0 6px;
+    margin-right: 6px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: bold;
+    line-height: 1.6;
+}
+
+/* SEQUENCE / SET：蓝 */
+.asn1-badge-seq { background: #e3e9fd; color: #3b5bdb; }
+
+/* OID：绿 */
+.asn1-badge-oid { background: #dff5e6; color: #2b8a3e; }
+
+/* UTF8/Printable/T61/IA5/General/BMP 字符串：青 */
+.asn1-badge-str { background: #dff7f3; color: #0c8599; }
+
+/* UTCTime / GeneralizedTime：紫 */
+.asn1-badge-time { background: #f0e6fd; color: #862e9c; }
+
+/* INTEGER / ENUMERATED / BOOLEAN：橙 */
+.asn1-badge-int { background: #ffece0; color: #d9480f; }
+
+/* BIT STRING / OCTET STRING / NULL：灰 */
+.asn1-badge-bin { background: #e9ecef; color: #5c6670; }
+
+/* 上下文类 [n]：紫灰 */
+.asn1-badge-ctx { background: #ece9f4; color: #7048a8; }
+
+/* 内嵌 DER 小标记：淡黄 */
+.asn1-badge-emb { background: #fff3bf; color: #97740c; font-weight: normal; font-size: 10px; padding: 0 4px; }
+
+/* 其余未分类 tag：中性灰 */
+.asn1-badge-other { background: #f1f3f5; color: #495057; }

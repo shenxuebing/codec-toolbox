@@ -682,13 +682,15 @@
                         <label>或从文件加载</label>
                         <!-- 拖拽/点击二合一的文件选择区：隐藏的 input 实际负责弹出文件选择框 -->
                         <div id="asn1-drop-zone" class="file-drop-zone">
-                            拖拽证书/密钥文件到此处，或点击选择文件（.cer / .crt / .pem / .der / .bin）
-                            <input type="file" id="asn1-file-input" accept=".cer,.crt,.pem,.der,.bin" style="display:none;">
+                            拖拽证书/密钥/PKCS 容器文件（.cer .crt .pem .der .pfx .p12 .p7b .p7c .spc）到此处，或点击选择文件
+                            <input type="file" id="asn1-file-input" accept=".cer,.crt,.pem,.der,.bin,.pfx,.p12,.p7b,.p7c,.spc" style="display:none;">
                         </div>
                     </div>
                     <div class="button-group">
                         <button type="button" class="btn btn-primary" onclick="asn1Parse()">解析</button>
                         <button type="button" class="btn btn-secondary" onclick="asn1Clear()">清空</button>
+                        <button type="button" class="btn btn-secondary" onclick="asn1CollapseAll()">全部折叠</button>
+                        <button type="button" class="btn btn-secondary" onclick="asn1ExpandAll()">全部展开</button>
                     </div>
                     <!-- 概要信息行：识别的输入格式 / DER 总字节数 / 顶层类型（由 js/asn1.js 填充） -->
                     <div id="asn1-info" class="asn1-info"></div>
@@ -697,7 +699,7 @@
                         <label>解析结果（点击节点复制该节点完整 Hex）</label>
                         <div id="asn1-tree" class="asn1-tree">解析后此处按层级展示 TLV 树（tag 名 / 偏移与长度 / 内容预览）</div>
                     </div>
-                    <p class="tool-hint">💡 支持 PEM（多块取第一个）、纯 Base64、Hex 三种输入，自动识别；OCTET STRING 内容若恰为合法 DER 会自动展开并标注 [内嵌 DER]（PKCS#8 / 信封常见）；嵌套超过 16 层自动中止；解析错误会定位到具体字节位置。</p>
+                    <p class="tool-hint">💡 支持 PEM（多块取第一个）、纯 Base64、Hex 三种输入，自动识别；文件上传支持 .cer/.crt/.pem/.der/.bin 及 PKCS 容器 .pfx/.p12（内层加密数据仅可查看外层结构）/.p7b/.p7c/.spc（PKCS#7 证书链），上限 2MB；树节点点击箭头折叠/展开（顶部按钮可全部折叠/展开），点击行复制该节点完整 Hex；OCTET STRING 内容若恰为合法 DER 会自动展开并标注 [内嵌]（PKCS#8 / 信封常见）；嵌套超过 16 层自动中止；解析错误会定位到具体字节位置。</p>
                 </div>
             </div>
 

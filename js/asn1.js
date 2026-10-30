@@ -3,8 +3,8 @@
 // 体验参考 asn1editor / Lapo ASN.1 JavaScript decoder：
 //   PEM / Base64 / Hex 输入 → TLV 树形展示（tag/偏移/长度/内容预览）
 // 本文件自包含（不依赖其他 js 文件），纯解析函数（asn1ExtractDer /
-// asn1ParseTlv / asn1DecodeOid / asn1TagName / asn1FormatTime / asn1Preview）
-// 不触碰 DOM，可在 Node 中单独加载打桩测试
+// asn1ExtractDerBytes / asn1ParseTlv / asn1DecodeOid / asn1TagName /
+// asn1FormatTime / asn1Preview）不触碰 DOM，可在 Node 中单独加载打桩测试
 // ============================================================
 
 // ---------- 基础工具 ----------
@@ -30,15 +30,7 @@ function asn1HexPreview(bytes, maxBytes) {
     return s;
 }
 
-// HTML 转义：预览文本拼 innerHTML 前必须转义（防内容注入 / 破坏布局）
-function asn1EscapeHtml(s) {
-    return String(s)
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;')
-        .replace(/'/g, '&#39;');
-}
+// HTML 转义工具已移除：树形渲染改为全 DOM API + textContent，天然防内容注入
 
 // 字节数组 → Latin-1 字符串（每字节一字符，供时间 / Base64 判头等 ASCII 场景）
 function asn1BytesToLatin1(bytes) {
@@ -164,6 +156,47 @@ function asn1ExtractDer(rawStr) {
     // 3. 否则按 Base64 处理
     var bb = asn1Base64ToBytes(cleaned);
     return { bytes: bb, format: 'Base64', note: '' };
+}
+
+// 字节输入识别（文件上传路径）：直接接受 Uint8Array / 字节数组，返回与
+// asn1ExtractDer 同构的 { bytes, format, note }；fileName 仅用于按扩展名给
+// PKCS 容器提示（可省略）。识别失败抛中文错误
+function asn1ExtractDerBytes(bytes, fileName) {
+    if (!bytes || bytes.length === 0) {
+        throw new Error('输入内容为空');
+    }
+    // JKS/JCEKS 魔数（FE ED FE ED）：Java 私有密钥库格式，不是 ASN.1 结构，明确拒绝
+    if (bytes.length >= 4 && bytes[0] === 0xFE && bytes[1] === 0xED &&
+        bytes[2] === 0xFE && bytes[3] === 0xED) {
+        throw new Error('这是 JKS/JCEKS 密钥库（Java 私有格式），不是 ASN.1 结构，无法解析');
+    }
+    // 前 64 字节查 PEM 头（PEM 为纯 ASCII，按 Latin-1 逐字节比对即可），
+    // 命中则整体转 Latin-1 字符串走 asn1ExtractDer（PEM / Base64 识别逻辑复用）
+    var head = '';
+    for (var i = 0; i < Math.min(bytes.length, 64); i++) {
+        head += String.fromCharCode(bytes[i]);
+    }
+    if (head.indexOf('-----BEGIN') >= 0) {
+        // 分块转字符串，避免大文件 fromCharCode 参数超限
+        var text = '';
+        for (var j = 0; j < bytes.length; j += 4096) {
+            text += String.fromCharCode.apply(null,
+                bytes.subarray ? bytes.subarray(j, Math.min(j + 4096, bytes.length))
+                    : bytes.slice(j, Math.min(j + 4096, bytes.length)));
+        }
+        return asn1ExtractDer(text);
+    }
+    // 裸二进制直接按 DER 解析；按扩展名附容器类型提示
+    // （PKCS#7 ContentInfo 外层是 SEQUENCE{OID, [0]}，现有 TLV 解析天然能展示，无需特判）
+    var extMatch = String(fileName == null ? '' : fileName).toLowerCase().match(/\.([a-z0-9]+)$/);
+    var ext = extMatch ? extMatch[1] : '';
+    var note = '';
+    if (ext === 'pfx' || ext === 'p12') {
+        note = 'PKCS#12 容器（内层多为加密数据，带口令部分无法展开，仅可查看外层结构）';
+    } else if (ext === 'p7b' || ext === 'p7c' || ext === 'spc') {
+        note = 'PKCS#7 证书链容器';
+    }
+    return { bytes: bytes, format: '二进制 DER', note: note };
 }
 
 // ---------- ASN.1 Tag 名称映射 ----------
@@ -552,85 +585,194 @@ function asn1Preview(tlv) {
 // 渲染时按行序收集节点引用，供点击复制时按 data-ni 索引取回（事件委托）
 var ASN1_NODE_LIST = [];
 
-// 渲染 TLV 树到容器：每行 = 缩进(depth*16px) + tag 名 + @偏移/长度 + 内容预览；
-// tlv 可传单个根节点或根节点数组（顶层多个并列 TLV 时）
+// 节点 → tag 徽章配色类：SEQUENCE/SET 蓝、OID 绿、字符串青、时间紫、
+// 整型/布尔橙、BIT/OCTET STRING/NULL 灰、上下文类紫灰；未分类中性灰
+function asn1BadgeClass(node) {
+    var t = node.tagFirst;
+    if (t === 0x30 || t === 0x31) { return 'asn1-badge-seq'; }
+    if (t === 0x06) { return 'asn1-badge-oid'; }
+    if (t === 0x0C || t === 0x13 || t === 0x14 || t === 0x16 || t === 0x1B || t === 0x1E) {
+        return 'asn1-badge-str'; // UTF8/Printable/T61/IA5/General/BMP 字符串
+    }
+    if (t === 0x17 || t === 0x18) { return 'asn1-badge-time'; }
+    if (t === 0x01 || t === 0x02 || t === 0x0A) { return 'asn1-badge-int'; }
+    if (t === 0x03 || t === 0x04 || t === 0x05) { return 'asn1-badge-bin'; }
+    if ((t & 0xC0) === 0x80) { return 'asn1-badge-ctx'; }
+    return 'asn1-badge-other';
+}
+
+// 渲染 TLV 树到容器（全 DOM API + textContent 防注入）：
+//   节点行 = 折叠箭头 + tag 徽章（+ [内嵌] 小标记）+ @偏移/长度 + 内容预览；
+//   有子节点的行后紧跟 .asn1-children 子树容器（嵌套缩进 + 左侧竖线辅助线，
+//   折叠时由 CSS 相邻选择器整体隐藏）；
+//   tlv 可传单个根节点或根节点数组（顶层多个并列 TLV 时）
 function asn1RenderTree(container, tlv) {
     var roots = Array.isArray(tlv) ? tlv : [tlv];
     ASN1_NODE_LIST = [];
-    var html = '';
+    container.textContent = '';
 
-    function walk(node, depth) {
+    // 构建单个节点行（行序注册进 ASN1_NODE_LIST，供点击复制按 data-ni 取回）
+    function buildRow(node) {
         var idx = ASN1_NODE_LIST.length;
         ASN1_NODE_LIST.push(node);
         var name = node.tagBytes.length > 1
             ? 'TAG_0x' + asn1BytesToHex(node.tagBytes).toUpperCase() + '…'
             : asn1TagName(node.tagFirst, node.constructed);
+        var hasChildren = node.children.length > 0;
+
+        var row = document.createElement('div');
+        row.className = 'asn1-node' + (hasChildren ? ' asn1-has-children' : '');
+        row.setAttribute('data-ni', String(idx));
+        row.title = '点击复制该节点完整 Hex（' + node.totalLen + ' 字节）';
+
+        // 折叠箭头（叶子节点用同宽占位空 span 保持对齐）
+        var toggle = document.createElement('span');
+        toggle.className = hasChildren ? 'asn1-toggle' : 'asn1-toggle-slot';
+        toggle.textContent = hasChildren ? '▾' : '';
+        row.appendChild(toggle);
+
+        // tag 徽章（按类型分色）
+        var badge = document.createElement('span');
+        badge.className = 'asn1-badge ' + asn1BadgeClass(node);
+        badge.textContent = name;
+        row.appendChild(badge);
+
+        // 内嵌 DER 追加小标记
         if (node.embeddedDer) {
-            name += ' [内嵌 DER]';
+            var emb = document.createElement('span');
+            emb.className = 'asn1-badge asn1-badge-emb';
+            emb.textContent = '[内嵌]';
+            row.appendChild(emb);
         }
-        var meta = '@' + node.offset + ' 长' + node.totalLen +
+
+        var meta = document.createElement('span');
+        meta.className = 'asn1-meta';
+        meta.textContent = '@' + node.offset + ' 长' + node.totalLen +
             '(头' + node.headerLen + '+内容' + node.contentLen + ')';
-        html += '<div class="asn1-node" data-ni="' + idx + '" style="padding-left:' +
-            Math.min(depth * 16, 480) + 'px" title="点击复制该节点完整 Hex（' + node.totalLen + ' 字节）">' +
-            '<span class="asn1-tag">' + asn1EscapeHtml(name) + '</span>' +
-            '<span class="asn1-meta">' + asn1EscapeHtml(meta) + '</span>' +
-            '<span class="asn1-preview">' + asn1EscapeHtml(asn1Preview(node)) + '</span>' +
-            '</div>';
-        for (var i = 0; i < node.children.length; i++) {
-            walk(node.children[i], depth + 1);
+        row.appendChild(meta);
+
+        var preview = document.createElement('span');
+        preview.className = 'asn1-preview';
+        preview.textContent = asn1Preview(node);
+        row.appendChild(preview);
+
+        return row;
+    }
+
+    // 递归构建：节点行 + （有子节点时）子树容器
+    function buildInto(parent, node) {
+        parent.appendChild(buildRow(node));
+        if (node.children.length > 0) {
+            var kids = document.createElement('div');
+            kids.className = 'asn1-children';
+            for (var i = 0; i < node.children.length; i++) {
+                buildInto(kids, node.children[i]);
+            }
+            parent.appendChild(kids);
         }
     }
 
     for (var r = 0; r < roots.length; r++) {
-        walk(roots[r], 0);
+        buildInto(container, roots[r]);
     }
-    container.innerHTML = html;
 }
 
 // ---------- 页面动作 ----------
 
-// "解析"按钮：识别输入 → 逐个解析顶层 TLV → 概要信息 + 树形渲染
-function asn1Parse() {
-    var inputElem = document.getElementById('asn1-input');
+// 概要 + 树形统一渲染：ex 为 asn1ExtractDer / asn1ExtractDerBytes 的返回值
+// （{ bytes, format, note }），fileName 为文件上传路径的文件名（手动粘贴解析传 ''）；
+// 概要行追加容器类型说明（note）与文件名
+function asn1ShowResult(ex, fileName) {
     var infoElem = document.getElementById('asn1-info');
     var treeElem = document.getElementById('asn1-tree');
-    if (!inputElem || !infoElem || !treeElem) {
+    if (!infoElem || !treeElem) {
         return;
     }
-    infoElem.textContent = '';
-    treeElem.innerHTML = '';
+    var bytes = ex.bytes;
+    if (bytes.length === 0) {
+        throw new Error('解码后数据为空');
+    }
+    // 顶层可能并列多个 TLV（如拼接的 DER），逐个解析
+    var roots = [];
+    var p = 0;
+    while (p < bytes.length) {
+        var node = asn1ParseTlv(bytes, p, bytes.length, 0);
+        roots.push(node);
+        p += node.totalLen;
+    }
+    var topNames = roots.map(function (r) {
+        return asn1TagName(r.tagFirst, r.constructed);
+    });
+    if (topNames.length > 3) {
+        topNames = topNames.slice(0, 3).concat(['等共 ' + topNames.length + ' 个']);
+    }
+    infoElem.textContent = '输入格式：' + ex.format +
+        '｜DER 共 ' + bytes.length + ' 字节｜顶层：' + topNames.join('、') +
+        (ex.note ? '｜' + ex.note : '') +
+        (fileName ? '｜文件：' + fileName : '');
+    asn1RenderTree(treeElem, roots);
+}
+
+// 解析错误统一展示：清空概要行，树容器内渲染错误提示块（DOM API 防注入）
+function asn1ShowError(msg) {
+    var infoElem = document.getElementById('asn1-info');
+    var treeElem = document.getElementById('asn1-tree');
+    if (infoElem) { infoElem.textContent = ''; }
+    if (!treeElem) {
+        return;
+    }
+    treeElem.textContent = '';
+    if (!msg) {
+        return;
+    }
+    var div = document.createElement('div');
+    div.className = 'asn1-error';
+    div.textContent = '❌ ' + msg;
+    treeElem.appendChild(div);
+}
+
+// "解析"按钮：识别 textarea 输入（PEM / Base64 / Hex）→ 概要信息 + 树形渲染
+// （cert.js 的"用 ASN.1 树查看"也是先填 textarea 再调本函数，路径保持不变）
+function asn1Parse() {
+    var inputElem = document.getElementById('asn1-input');
+    if (!inputElem) {
+        return;
+    }
+    asn1ShowError(''); // 清空上次结果
     if (!inputElem.value.trim()) {
         showNotification('请先输入或上传 PEM / Base64 / Hex 数据');
         return;
     }
     try {
-        var ex = asn1ExtractDer(inputElem.value);
-        var bytes = ex.bytes;
-        if (bytes.length === 0) {
-            throw new Error('解码后数据为空');
-        }
-        // 顶层可能并列多个 TLV（如拼接的 DER），逐个解析
-        var roots = [];
-        var p = 0;
-        while (p < bytes.length) {
-            var node = asn1ParseTlv(bytes, p, bytes.length, 0);
-            roots.push(node);
-            p += node.totalLen;
-        }
-        var topNames = roots.map(function (r) {
-            return asn1TagName(r.tagFirst, r.constructed);
-        });
-        if (topNames.length > 3) {
-            topNames = topNames.slice(0, 3).concat(['等共 ' + topNames.length + ' 个']);
-        }
-        infoElem.textContent = '输入格式：' + ex.format +
-            '｜DER 共 ' + bytes.length + ' 字节｜顶层：' + topNames.join('、') +
-            (ex.note ? '｜' + ex.note : '');
-        asn1RenderTree(treeElem, roots);
+        asn1ShowResult(asn1ExtractDer(inputElem.value), '');
     } catch (e) {
-        treeElem.innerHTML = '<div class="asn1-error">❌ ' + asn1EscapeHtml(e.message) + '</div>';
+        asn1ShowError(e.message);
         showNotification('解析失败：' + e.message);
     }
+}
+
+// "全部折叠" / "全部展开"：遍历树中有子节点的行，统一切换折叠类并同步箭头方向
+function asn1SetAllCollapsed(collapsed) {
+    var treeElem = document.getElementById('asn1-tree');
+    if (!treeElem) {
+        return;
+    }
+    var rows = treeElem.querySelectorAll('.asn1-node.asn1-has-children');
+    for (var i = 0; i < rows.length; i++) {
+        rows[i].classList.toggle('asn1-collapsed', collapsed);
+        var toggle = rows[i].firstElementChild; // 折叠箭头恒为行内第一个子元素
+        if (toggle) {
+            toggle.textContent = collapsed ? '▸' : '▾';
+        }
+    }
+}
+
+function asn1CollapseAll() {
+    asn1SetAllCollapsed(true);
+}
+
+function asn1ExpandAll() {
+    asn1SetAllCollapsed(false);
 }
 
 // "清空"按钮
@@ -643,34 +785,47 @@ function asn1Clear() {
     if (treeElem) { treeElem.innerHTML = ''; }
 }
 
-// 读取上传文件：readAsArrayBuffer 后先查 PEM 头（前 64 字节），有则按文本填入，
-// 无则按字节转 Hex 串填入；填入后自动触发一次解析
+// 读取上传文件（上限 2MB）：readAsArrayBuffer 后统一走 asn1ExtractDerBytes
+// 识别（PEM 头 / JKS 魔数 / 裸 DER + 容器提示），解析直接用 bytes；
+// textarea 仅作展示回填（PEM 填原文，二进制 ≤512KB 填大写 Hex，过大填提示文字）
 function asn1ReadFile(file) {
-    if (file.size > 512 * 1024) {
-        showNotification('文件过大（超过 512KB），请粘贴内容代替上传');
+    if (file.size > 2 * 1024 * 1024) {
+        showNotification('文件过大（超过 2MB），请粘贴内容代替上传');
         return;
     }
     var reader = new FileReader();
     reader.onload = function () {
         var buf = new Uint8Array(reader.result);
-        // 前 64 字节找 PEM 头（PEM 为纯 ASCII，按 Latin-1 逐字节比对即可）
-        var head = '';
-        for (var i = 0; i < Math.min(buf.length, 64); i++) {
-            head += String.fromCharCode(buf[i]);
-        }
-        if (head.indexOf('-----BEGIN') >= 0) {
-            // 分块转文本，避免大文件 fromCharCode 参数超限
-            var text = '';
-            for (var j = 0; j < buf.length; j += 4096) {
-                text += String.fromCharCode.apply(null, buf.subarray(j, Math.min(j + 4096, buf.length)));
+        var inputElem = document.getElementById('asn1-input');
+        try {
+            var ex = asn1ExtractDerBytes(buf, file.name);
+            // textarea 回填（仅展示，解析用 bytes）：
+            //   PEM 填原文便于人工核对；二进制 ≤512KB 填大写 Hex；过大不填入避免卡顿
+            var head = '';
+            for (var i = 0; i < Math.min(buf.length, 64); i++) {
+                head += String.fromCharCode(buf[i]);
             }
-            document.getElementById('asn1-input').value = text;
-        } else {
-            // 二进制 DER：转大写 Hex 填入
-            document.getElementById('asn1-input').value = asn1BytesToHex(buf).toUpperCase();
+            if (inputElem) {
+                if (head.indexOf('-----BEGIN') >= 0) {
+                    // 分块转文本，避免大文件 fromCharCode 参数超限
+                    var text = '';
+                    for (var j = 0; j < buf.length; j += 4096) {
+                        text += String.fromCharCode.apply(null, buf.subarray(j, Math.min(j + 4096, buf.length)));
+                    }
+                    inputElem.value = text;
+                } else if (buf.length <= 512 * 1024) {
+                    inputElem.value = asn1BytesToHex(buf).toUpperCase();
+                } else {
+                    inputElem.value = '（二进制文件 ' + file.name + ' 共 ' + buf.length +
+                        ' 字节，内容过大不填入输入框，解析结果见下方树）';
+                }
+            }
+            showNotification('已加载文件：' + file.name + '（' + file.size + ' 字节）');
+            asn1ShowResult(ex, file.name);
+        } catch (e) {
+            asn1ShowError(e.message);
+            showNotification('解析失败：' + e.message);
         }
-        showNotification('已加载文件：' + file.name + '（' + file.size + ' 字节）');
-        asn1Parse();
     };
     reader.onerror = function () {
         showNotification('文件读取失败');
@@ -681,7 +836,7 @@ function asn1ReadFile(file) {
 // ---------- 初始化 ----------
 
 // 绑定拖拽区（点击/拖拽/释放）、文件输入与树形点击复制（事件委托，
-// innerHTML 重渲染后监听依然有效）
+// 树形重新渲染后监听依然有效）
 function asn1Init() {
     var dropZone = document.getElementById('asn1-drop-zone');
     var fileInput = document.getElementById('asn1-file-input');
@@ -719,11 +874,23 @@ function asn1Init() {
         });
     }
 
-    // 树形点击复制：复制该节点完整 Hex（大写）
+    // 树形点击（事件委托，重渲染后监听依然有效）：
+    //   点折叠箭头 → 切换该节点子树显隐；点行其余区域 → 复制该节点完整 Hex（大写）
     var treeElem = document.getElementById('asn1-tree');
     if (treeElem) {
         treeElem.addEventListener('click', function (event) {
-            var row = event.target.closest ? event.target.closest('.asn1-node') : null;
+            var t = event.target;
+            // 1) 折叠箭头：切换子树显隐并翻转箭头方向，不触发复制
+            if (t.classList && t.classList.contains('asn1-toggle')) {
+                var prow = t.closest ? t.closest('.asn1-node') : null;
+                if (prow) {
+                    var collapsed = prow.classList.toggle('asn1-collapsed');
+                    t.textContent = collapsed ? '▸' : '▾';
+                }
+                return;
+            }
+            // 2) 节点行（非箭头区域）：复制该节点完整 Hex
+            var row = t.closest ? t.closest('.asn1-node') : null;
             if (!row) {
                 return;
             }
@@ -751,6 +918,7 @@ if (typeof document === 'undefined') {
 if (typeof module !== 'undefined' && module.exports) {
     module.exports = {
         asn1ExtractDer: asn1ExtractDer,
+        asn1ExtractDerBytes: asn1ExtractDerBytes,
         asn1ParseTlv: asn1ParseTlv,
         asn1DecodeOid: asn1DecodeOid,
         asn1OidName: asn1OidName,
