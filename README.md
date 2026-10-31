@@ -1,6 +1,6 @@
 # 增强版多功能编解码工具箱
 
-浏览器离线编解码/密码学辅助工具箱，左侧菜单栏 + 右侧内容区布局，共 33 个功能页面。双击 `index.html` 即可使用，除 GitHub 热榜外全部功能无需联网。
+浏览器离线编解码/密码学辅助工具箱，左侧菜单栏 + 右侧内容区布局，共 34 个功能页面。双击 `index.html` 即可使用，除 GitHub 热榜外全部功能无需联网。
 
 （功能分类：编码转换类 → 哈希/密码类 → 文本/开发类 → 生活/资讯类，共 25 页）
 
@@ -134,6 +134,19 @@
 - 一次性计算 HMAC-SHA1/SHA-256/SHA-384/SHA-512，基于 Web Crypto
 - 密钥支持文本/Hex/Base64 三种输入格式，输出 Hex/Base64
 
+### 🔐 AES 加解密
+- ECB/CBC 模式 × PKCS7/无填充，密钥 128/192/256 位（Hex 或文本输入，随机生成）
+- 输入文本/Hex/Base64，输出 Base64/Hex；与 Node crypto 逐字节对拍一致
+- PBKDF2-SHA256 口令派生密钥（自定义盐与迭代次数，Web Crypto）
+
+### 🛡️ 国密 SM2/SM4
+- SM4 加解密：ECB/CBC × PKCS7/无填充，输入支持文本(UTF-8)/Hex/Base64，输出 Hex/Base64，随机密钥/IV 生成
+- SM3 摘要：支持文本/Hex 输入
+- SM2 密钥对生成、PKCS#8 PEM/Base64 私钥提取（自动定位 32 字节私钥段）、**私钥转 PKCS#8 PEM 生成**（与 GmSSL/OpenSSL 兼容，结构经 1.key 实样字节级对拍）
+- SM2 加解密（C1C3C2 新国标 / C1C2C3 旧标准）与签名验签（SM3 预处理、DER 编码、UserId 可配）
+- **SM2 密文格式互转**：裸 C1C3C2/C1C2C3 ↔ DER/ASN.1（GM/T 0010 SM2Cipher），打通 sm-crypto 与 GmSSL 密文互通；DER INTEGER 符号零与坐标定长还原均正确处理
+- **EnDataUtil 格式兼容**：与 EnDataUtil.dll 的 SM4EnData/SM4DeData 封装格式完全互通（固定 yKey + 随机数经 SM3对折→取反→MD5→对折→SM3→MD5 派生密钥），解密支持 random 大小写自适应，已用样例逐字节对拍验证
+
 ### 🏷️ HTML 实体编解码
 - 基础五保留字（& < > " '）与全量非 ASCII（&#xNNNN;）两种编码范围
 - 解码用浏览器原生 textarea 实体机制，支持全部命名/数字实体；附常用实体速查表
@@ -149,13 +162,6 @@
 ### 🗄️ SQL 格式化
 - 基于 sql-formatter（本地化内置），支持标准 SQL/MySQL/PostgreSQL/SQLite/PL-SQL/T-SQL 方言
 - 缩进 2/4/Tab，关键字大写或保持原样；压缩为一行功能
-
-### 🛡️ 国密 SM2/SM4
-- SM4 加解密：ECB/CBC × PKCS7/无填充，输入支持文本(UTF-8)/Hex/Base64，输出 Hex/Base64，随机密钥/IV 生成
-- SM3 摘要：支持文本/Hex 输入
-- SM2 密钥对生成、PKCS#8 PEM/Base64 私钥提取（自动定位 32 字节私钥段）
-- SM2 加解密（C1C3C2 新国标 / C1C2C3 旧标准）与签名验签（SM3 预处理、DER 编码、UserId 可配）
-- **EnDataUtil 格式兼容**：与 EnDataUtil.dll 的 SM4EnData/SM4DeData 封装格式完全互通（固定 yKey + 随机数经 SM3对折→取反→MD5→对折→SM3→MD5 派生密钥），可解开 testEnDataUtil.exe 加密的任意输出，已用样例逐字节对拍验证
 
 ### 📁 文件工具
 - 拖拽或点击选择文件，计算五种哈希（与文本页签结果一致）

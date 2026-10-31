@@ -645,11 +645,246 @@ function gmCompatClear() {
     document.getElementById('gm-compat-result').textContent = '';
 }
 
+// ===================== Section 5：SM2 密文格式互转（裸 ↔ DER，GM/T 0010 SM2Cipher） =====================
+// GmSSL / 标准工具输出的 SM2 密文为 ASN.1 DER（GM/T 0010 SM2Cipher 结构）：
+//   SEQUENCE { INTEGER x, INTEGER y, OCTET STRING hash(32B), OCTET STRING cipherText }
+// sm-crypto 等库输出裸密文（C1C3C2 或 C1C2C3 排布，hex 不含 04 前缀，
+// C1 = x(32B) || y(32B)，C3 = hash(32B)，C2 = cipherText）。本节实现双向互转。
+
+// DER 长度编码：短格式（<0x80）/ 长格式（0x81 / 0x82 两档，SM2 密文长度足够覆盖）
+function gmDerLen(len) {
+    if (len < 0x80) {
+        return [len];
+    }
+    if (len <= 0xFF) {
+        return [0x81, len];
+    }
+    return [0x82, (len >> 8) & 0xff, len & 0xff];
+}
+
+// DER TLV 拼装：tag + 长度 + 内容（tag 传单字节，如 0x30 SEQUENCE / 0x02 INTEGER / 0x04 OCTET STRING）
+function gmDerTlv(tag, contentBytes) {
+    return [tag].concat(gmDerLen(contentBytes.length), contentBytes);
+}
+
+// 32 字节坐标 → DER INTEGER 内容：
+//   先去前导零字节（至少保留 1 字节），若最高位为 1 则前补 0x00（DER INTEGER 符号规则：
+//   最高位为 1 会被解释为负数，必须用 0x00 填充声明正号）
+function sm2ConvInteger(bytes) {
+    var i = 0;
+    while (i < bytes.length - 1 && bytes[i] === 0) {
+        i++; // 去前导零
+    }
+    var trimmed = bytes.slice(i);
+    if (trimmed[0] & 0x80) {
+        return gmDerTlv(0x02, [0x00].concat(trimmed)); // 补符号字节
+    }
+    return gmDerTlv(0x02, trimmed);
+}
+
+// 裸密文切分：hex（不含 04 前缀）→ { x, y, hash, cipher }
+//   C1 = x(32B) || y(32B) 固定在前；order 为 'c1c3c2'（hash 在 cipher 前）或 'c1c2c3'（hash 在最后）
+function sm2ConvSplitBare(hex, order) {
+    var bytes = gmHexToBytes(hex);
+    if (bytes.length < 96) {
+        throw new Error('裸密文至少 96 字节（C1=64 + C3=32 + C2≥0），当前 ' + bytes.length + ' 字节');
+    }
+    var x = bytes.slice(0, 32);
+    var y = bytes.slice(32, 64);
+    var rest = bytes.slice(64);
+    // C2/C3 按 32 字节 hash 与"剩余长度"切分；hash 一定是 32 字节（SM3 摘要）
+    return (order === 'c1c3c2')
+        ? { x: x, y: y, hash: rest.slice(0, 32), cipher: rest.slice(32) }
+        : { x: x, y: y, hash: rest.slice(rest.length - 32), cipher: rest.slice(0, rest.length - 32) };
+}
+
+// 四段 → DER（GM/T 0010 SM2Cipher）：x/y 走 INTEGER 编码，hash/cipher 为 OCTET STRING（不剥前导零）
+function sm2ConvBareToDer(parts) {
+    var content = []
+        .concat(sm2ConvInteger(parts.x), sm2ConvInteger(parts.y),
+            gmDerTlv(0x04, parts.hash), gmDerTlv(0x04, parts.cipher));
+    return gmDerTlv(0x30, content); // 顶层 SEQUENCE
+}
+
+// DER 输入自动识别：合法 Hex 按 Hex 解，否则按 Base64 解（容忍 DER 文件的 Base64 转储）
+function sm2ConvInputToBytes(str) {
+    if (/^[0-9a-fA-F]+$/.test(str) && str.length % 2 === 0) {
+        return gmHexToBytes(str.toLowerCase());
+    }
+    return gmBase64ToBytes(str);
+}
+
+// DER → { x, y, hash, cipher }：asn1ParseTlv（js/asn1.js 全局）解析 SEQUENCE 取四个子节点
+function sm2ConvDerToParts(derBytes) {
+    var root = asn1ParseTlv(derBytes, 0, derBytes.length, 0);
+    if (root.tagFirst !== 0x30 || !root.constructed) {
+        throw new Error('DER 顶层必须是 SEQUENCE（0x30），当前不是合法的 SM2Cipher 结构');
+    }
+    var kids = root.children || [];
+    if (kids.length !== 4) {
+        throw new Error('SM2Cipher 结构应含 4 个子节点（x / y / hash / cipherText），当前 ' + kids.length + ' 个');
+    }
+    // x/y：INTEGER 内容可能被 DER 规则去掉了前导零（或补了符号 0x00），
+    // 统一先剥全部前导零，再左补 0x00 还原成 32 字节定长坐标
+    var coord = function (kid, name) {
+        if (kid.tagFirst !== 0x02) {
+            throw new Error(name + ' 应为 INTEGER（0x02）');
+        }
+        var c = derBytes.slice(kid.contentStart, kid.contentStart + kid.contentLen);
+        var s = 0;
+        while (s < c.length && c[s] === 0) {
+            s++; // 剥前导零（含编码方多补的符号 0x00）
+        }
+        var stripped = c.slice(s);
+        if (stripped.length > 32) {
+            throw new Error(name + ' 坐标超过 32 字节（' + stripped.length + ' 字节），不是合法的 SM2 密文');
+        }
+        var out = [];
+        for (var p = 0; p < 32 - stripped.length; p++) {
+            out.push(0); // 不足 32 字节则前补 0x00 补齐
+        }
+        return out.concat(stripped);
+    };
+    var x = coord(kids[0], 'x 坐标');
+    var y = coord(kids[1], 'y 坐标');
+    if (kids[2].tagFirst !== 0x04 || kids[3].tagFirst !== 0x04) {
+        throw new Error('hash / cipherText 应为 OCTET STRING（0x04）');
+    }
+    var hash = derBytes.slice(kids[2].contentStart, kids[2].contentStart + kids[2].contentLen);
+    if (hash.length !== 32) {
+        throw new Error('DER 内 hash（C3，SM3 摘要）长度须为 32 字节，当前 ' + hash.length + ' 字节');
+    }
+    var cipher = derBytes.slice(kids[3].contentStart, kids[3].contentStart + kids[3].contentLen);
+    return { x: x, y: y, hash: hash, cipher: cipher };
+}
+
+// 四段 → 裸密文字节（按目标排布拼接）
+function sm2ConvJoinBare(parts, order) {
+    var c1 = parts.x.concat(parts.y);
+    return (order === 'c1c3c2')
+        ? c1.concat(parts.hash, parts.cipher)
+        : c1.concat(parts.cipher, parts.hash);
+}
+
+// "互转"按钮：源格式解成四段 → 按目标格式重组（hex 输出统一大写）
+function sm2ConvRun() {
+    var resultEl = document.getElementById('sm2conv-result');
+    try {
+        var input = document.getElementById('sm2conv-input').value.replace(/\s/g, '');
+        if (!input) {
+            throw new Error('请输入 SM2 密文');
+        }
+        var from = gmGetRadio('sm2conv-from') || 'c1c3c2';
+        var to = gmGetRadio('sm2conv-to') || 'c1c3c2';
+
+        // 第一步：按源格式解出 x / y / hash / cipher 四段
+        var parts = (from === 'der')
+            ? sm2ConvDerToParts(sm2ConvInputToBytes(input))
+            : sm2ConvSplitBare(gmCleanHex(input), from);
+
+        // 第二步：按目标格式重组
+        var outHex;
+        if (to === 'der') {
+            outHex = gmBytesToHex(sm2ConvBareToDer(parts)).toUpperCase();
+        } else {
+            outHex = gmBytesToHex(sm2ConvJoinBare(parts, to)).toUpperCase();
+        }
+
+        resultEl.className = 'result-area gm-oneline';
+        resultEl.textContent = (to === 'der' ? 'DER（GM/T 0010 SM2Cipher，' + outHex.length / 2 + ' 字节）：' : outHex.length / 2 + ' 字节：') + outHex;
+        showNotification('互转完成：' + (from === 'der' ? 'DER' : from.toUpperCase()) + ' → ' +
+            (to === 'der' ? 'DER' : to.toUpperCase()) + '（' + outHex.length / 2 + ' 字节）');
+    } catch (e) {
+        gmShowError('sm2conv-result', e);
+    }
+}
+
+// "清空"按钮
+function sm2ConvClear() {
+    document.getElementById('sm2conv-input').value = '';
+    document.getElementById('sm2conv-result').textContent = '';
+}
+
+// ===================== Section 6：SM2 私钥 → PKCS#8 PEM 生成 =====================
+// 与 Section 2 的"从 PKCS#8 PEM 私钥提取"互为逆操作；生成的 PEM 可被 GmSSL / OpenSSL 直接使用。
+// PKCS#8 PrivateKeyInfo（RFC 5958，EC 私钥）结构手工 DER 编码：
+//   SEQUENCE {
+//     INTEGER 1,                                  -- version
+//     OCTET STRING(32) d,                         -- SM2 私钥
+//     [0] IMPLICIT { OID 1.2.156.10197.1.301 },   -- SM2 曲线 OID（GM/T 0006）
+//     [1] IMPLICIT BIT STRING(00 04 || pub)       -- 公钥（可选段，不填则省略整段）
+//   }
+// 实测样例（1.key 的 DER，含公钥共 121 字节）：
+//   3077 0201 01 0420<d32> a00a 0608 2a811ccf5501822d a144 0342 0004<pub64>
+// SM2 曲线 OID 1.2.156.10197.1.301 的 DER 内容字节 = 2A811CCF5501822D
+
+// "生成 PEM"按钮
+function pemgenRun() {
+    try {
+        // 校验：私钥必须 64 位 hex；公钥可选，填了必须 130 位 04 开头 hex
+        var priv = gmCleanHex(document.getElementById('pemgen-priv').value);
+        if (!/^[0-9a-f]{64}$/.test(priv)) {
+            throw new Error('私钥必须是 64 位 Hex（32 字节），可从上方"SM2 密钥与加解密"区的私钥框复制');
+        }
+        var pubRaw = document.getElementById('pemgen-pub').value.trim();
+        var hasPub = false;
+        if (pubRaw) {
+            var pub = gmCleanHex(pubRaw);
+            if (!/^04[0-9a-f]{128}$/.test(pub)) {
+                throw new Error('公钥必须是 04 开头的 130 位 Hex（未压缩点）；不填则生成不含公钥的 PKCS#8');
+            }
+            pubRaw = pub;
+            hasPub = true;
+        }
+
+        // 逐段 DER 编码（gmDerLen / gmDerTlv 为 Section 5 的自写小函数）
+        var content = []
+            .concat(
+                gmDerTlv(0x02, [1]),                                       // INTEGER 1（version）
+                gmDerTlv(0x04, gmHexToBytes(priv)),                        // OCTET STRING(32) 私钥 d
+                gmDerTlv(0xA0, gmDerTlv(0x06, gmHexToBytes('2a811ccf5501822d'))) // [0] IMPLICIT { OID SM2 曲线 }
+            );
+        if (hasPub) {
+            // [1] IMPLICIT 内包 BIT STRING：内容 = 0x00（未用位数）+ 04 || 公钥 64 字节
+            content = content.concat(gmDerTlv(0xA1, gmDerTlv(0x03, [0x00].concat(gmHexToBytes(pubRaw)))));
+        }
+        var der = gmDerTlv(0x30, content);
+
+        // PEM 包装：Base64 按 64 字符折行
+        var b64 = gmBytesToBase64(der);
+        var lines = b64.match(/.{1,64}/g) || [];
+        var pem = '-----BEGIN PRIVATE KEY-----\n' + lines.join('\n') + '\n-----END PRIVATE KEY-----';
+
+        document.getElementById('pemgen-result').value = pem;
+        showNotification('PKCS#8 PEM 生成完成（DER ' + der.length + ' 字节，' +
+            (hasPub ? '含公钥' : '不含公钥') + '）');
+    } catch (e) {
+        // 结果区是 textarea，直接写 value（textContent 会受脏标记影响不刷新显示）
+        var msg = e && e.message ? e.message : String(e);
+        document.getElementById('pemgen-result').value = '❌ ' + msg;
+        showNotification(msg);
+    }
+}
+
+// "清空"按钮：清空私钥 / 公钥 / 结果
+function pemgenClear() {
+    document.getElementById('pemgen-priv').value = '';
+    document.getElementById('pemgen-pub').value = '';
+    document.getElementById('pemgen-result').value = '';
+}
+
 // Node 环境导出兼容层纯函数（浏览器中 module 未定义，此块自动跳过，便于对拍自测）
 if (typeof module !== 'undefined' && module.exports) {
     module.exports = {
         gmMakeEnDataKey: gmMakeEnDataKey,
         gmCompatEncryptBytes: gmCompatEncryptBytes,
-        gmCompatDecryptString: gmCompatDecryptString
+        gmCompatDecryptString: gmCompatDecryptString,
+        gmDerLen: gmDerLen,
+        gmDerTlv: gmDerTlv,
+        sm2ConvInteger: sm2ConvInteger,
+        sm2ConvSplitBare: sm2ConvSplitBare,
+        sm2ConvBareToDer: sm2ConvBareToDer,
+        sm2ConvDerToParts: sm2ConvDerToParts,
+        sm2ConvJoinBare: sm2ConvJoinBare
     };
 }

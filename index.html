@@ -25,6 +25,7 @@
             <button type="button" class="menu-item" data-page="page-hash"><span class="menu-icon">🔒</span><span class="menu-text">哈希计算</span></button>
             <button type="button" class="menu-item" data-page="page-gmsm"><span class="menu-icon">🛡️</span><span class="menu-text">国密 SM2/SM4</span></button>
             <button type="button" class="menu-item" data-page="page-hmac"><span class="menu-icon">🔏</span><span class="menu-text">HMAC 计算</span></button>
+            <button type="button" class="menu-item" data-page="page-aes"><span class="menu-icon">🔐</span><span class="menu-text">AES 加解密</span></button>
             <button type="button" class="menu-item" data-page="page-asn1"><span class="menu-icon">🧬</span><span class="menu-text">ASN.1 查看器</span></button>
             <button type="button" class="menu-item" data-page="page-cert"><span class="menu-icon">🪪</span><span class="menu-text">证书查看</span></button>
             <button type="button" class="menu-item" data-page="page-oid"><span class="menu-icon">🧭</span><span class="menu-text">OID 查询</span></button>
@@ -616,6 +617,70 @@
                     </div>
                     <p class="tool-hint">💡 此页签与 EnDataUtil.dll（SM4EnData / SM4DeData）完全互通：解密可打开 testEnDataUtil.exe 加密的任意输出（如样例 Aa123456 ↔ B9F2EF55...，以及打包数据中的私钥段）；加密输出可被该 DLL 直接解密。已逐字节对拍验证。</p>
                 </div>
+
+                <!-- Section 5：SM2 密文格式互转（裸 C1C3C2 / C1C2C3 ↔ DER，GM/T 0010 SM2Cipher） -->
+                <div class="section">
+                    <h2>🔄 SM2 密文格式互转</h2>
+                    <p class="tool-hint">GmSSL / 标准工具输出的 SM2 密文为 ASN.1 DER（GM/T 0010 SM2Cipher），sm-crypto 等库输出裸密文（C1C3C2 或 C1C2C3，96+ 字节 hex）。本工具双向互转实现互通。</p>
+                    <div class="encoding-selector">
+                        <label style="margin-right: 12px; font-weight: bold; color: #333;">源格式：</label>
+                        <label><input type="radio" name="sm2conv-from" value="c1c3c2" checked><span>裸 C1C3C2（sm-crypto）</span></label>
+                        <label><input type="radio" name="sm2conv-from" value="c1c2c3"><span>裸 C1C2C3</span></label>
+                        <label><input type="radio" name="sm2conv-from" value="der"><span>DER / ASN.1（GmSSL，GM/T 0010）</span></label>
+                    </div>
+                    <div class="input-group">
+                        <label>SM2 密文输入（裸密文为 Hex；DER 可粘贴 Hex 或 Base64）</label>
+                        <textarea id="sm2conv-input" placeholder="粘贴 SM2 密文：裸密文为 Hex（按上方“源格式”切分 C1/C3/C2）；DER 为 GM/T 0010 SM2Cipher 结构（30 开头的 Hex 或其 Base64）"></textarea>
+                    </div>
+                    <div class="button-group">
+                        <button type="button" class="btn btn-primary" onclick="sm2ConvRun()">互转</button>
+                        <button type="button" class="btn btn-secondary" onclick="sm2ConvClear()">清空</button>
+                    </div>
+                    <div class="encoding-selector">
+                        <label style="margin-right: 12px; font-weight: bold; color: #333;">目标格式：</label>
+                        <label><input type="radio" name="sm2conv-to" value="c1c3c2" checked><span>C1C3C2</span></label>
+                        <label><input type="radio" name="sm2conv-to" value="c1c2c3"><span>C1C2C3</span></label>
+                        <label><input type="radio" name="sm2conv-to" value="der"><span>DER</span></label>
+                    </div>
+                    <div class="input-group">
+                        <label>互转结果</label>
+                        <div class="result-container">
+                            <div class="result-area gm-oneline" id="sm2conv-result"></div>
+                            <button class="copy-btn" onclick="copyToClipboard('sm2conv-result')">复制</button>
+                        </div>
+                    </div>
+                    <p class="tool-hint">💡 裸密文不含 04 前缀（C1 为 x||y 两个 32 字节坐标）；DER 结构为 SEQUENCE { INTEGER x, INTEGER y, OCTET STRING hash(32B), OCTET STRING cipherText }，坐标按 DER INTEGER 规则去前导零、最高位为 1 时补 0x00。输出统一为大写 Hex。</p>
+                </div>
+
+                <!-- Section 6：SM2 私钥 → PKCS#8 PEM 生成（与 Section 2 的"从 PEM 提取"互逆） -->
+                <div class="section">
+                    <h2>🔑 SM2 私钥转 PKCS#8 PEM</h2>
+                    <p class="tool-hint">与上方“从 PKCS#8 PEM 私钥提取”互为逆操作；生成的 PEM 可被 GmSSL / OpenSSL 直接使用。</p>
+                    <div class="input-group">
+                        <label>私钥（64 位 Hex；可从上方“SM2 密钥与加解密”区的私钥框复制）</label>
+                        <div class="gm-key-row">
+                            <input type="text" id="pemgen-priv" placeholder="64 位 Hex 私钥，如 cec3bd2d2f215e7f...（32 字节）" autocomplete="off">
+                        </div>
+                    </div>
+                    <div class="input-group">
+                        <label>公钥（可选）</label>
+                        <div class="gm-key-row">
+                            <input type="text" id="pemgen-pub" placeholder="可选，04 开头未压缩公钥（130 位 Hex）；不填则生成不含公钥的 PKCS#8" autocomplete="off">
+                        </div>
+                    </div>
+                    <div class="button-group">
+                        <button type="button" class="btn btn-primary" onclick="pemgenRun()">生成 PEM</button>
+                        <button type="button" class="btn btn-secondary" onclick="pemgenClear()">清空</button>
+                    </div>
+                    <div class="input-group">
+                        <label>PKCS#8 PEM（Base64 按 64 字符折行）</label>
+                        <div class="result-container">
+                            <textarea id="pemgen-result" rows="6" readonly placeholder="点击“生成 PEM”后此处显示 -----BEGIN PRIVATE KEY----- 包装的私钥"></textarea>
+                            <button type="button" class="btn btn-secondary" onclick="gmCopyInput('pemgen-result')">复制 PEM</button>
+                        </div>
+                    </div>
+                    <p class="tool-hint">💡 结构为 RFC 5958 PrivateKeyInfo：SEQUENCE { INTEGER 1, OCTET STRING(32) 私钥, [0] SM2 曲线 OID 1.2.156.10197.1.301, [1] 公钥 BIT STRING（可选） }。自测锚点：私钥 cec3bd2d... 生成的 DER 前缀应为 30770201010420。</p>
+                </div>
             </div>
 
             <!-- HMAC 计算：Web Crypto 标准路径，一次算出 HMAC-SHA1/SHA-256/SHA-384/SHA-512 四种摘要 -->
@@ -668,6 +733,77 @@
                         </div>
                     </div>
                     <p class="tool-hint">💡 HMAC-SM3 请在"国密 SM2/SM4"页查看；密钥格式说明：文本按 UTF-8 编码，Hex 需为偶数个十六进制字符（可带 0x 前缀、可含空格，如 0xdeadbeef 或 dead beef），Base64 为标准编码；计算走浏览器 Web Crypto 标准接口，全部在本地完成。</p>
+                </div>
+            </div>
+
+            <!-- AES 加解密：CryptoJS 标准路径（ECB/CBC × PKCS7/无填充 × 128/192/256 位裸密钥 + PBKDF2 口令派生） -->
+            <div id="page-aes" class="page">
+                <div class="section">
+                    <h2>🔐 AES 加解密</h2>
+                    <div class="encoding-selector">
+                        <label style="margin-right: 12px; font-weight: bold; color: #333;">模式：</label>
+                        <label><input type="radio" name="aes-mode" value="ecb" checked onchange="aesModeChanged()"><span>ECB</span></label>
+                        <label><input type="radio" name="aes-mode" value="cbc" onchange="aesModeChanged()"><span>CBC</span></label>
+                        <label style="margin-right: 12px; margin-left: 20px; font-weight: bold; color: #333;">填充：</label>
+                        <label><input type="radio" name="aes-padding" value="Pkcs7" checked><span>PKCS7</span></label>
+                        <label><input type="radio" name="aes-padding" value="NoPadding"><span>无填充</span></label>
+                        <label style="margin-right: 12px; margin-left: 20px; font-weight: bold; color: #333;">密钥长度：</label>
+                        <label><input type="radio" name="aes-keylen" value="128" checked><span>128（16 字节）</span></label>
+                        <label><input type="radio" name="aes-keylen" value="192"><span>192（24 字节）</span></label>
+                        <label><input type="radio" name="aes-keylen" value="256"><span>256（32 字节）</span></label>
+                    </div>
+                    <div class="encoding-selector">
+                        <label style="margin-right: 12px; font-weight: bold; color: #333;">密钥：</label>
+                        <input type="text" id="aes-key" placeholder="Hex 密钥，128 位=32 字符（16 字节）" autocomplete="off" style="min-width: 220px;">
+                        <label style="margin-left: 12px; margin-right: 6px; font-weight: bold; color: #333;">密钥格式：</label>
+                        <label><input type="radio" name="aes-key-format" value="hex" checked><span>Hex</span></label>
+                        <label><input type="radio" name="aes-key-format" value="text"><span>文本(UTF-8)</span></label>
+                        <button type="button" class="btn btn-secondary" onclick="aesGenKey()">生成随机密钥</button>
+                    </div>
+                    <!-- IV 行：仅在 CBC 模式显示（aesModeChanged 切换 display）；IV 与密钥共用"密钥格式"单选 -->
+                    <div class="encoding-selector" id="aes-iv-row" style="display:none;">
+                        <label style="margin-right: 12px; font-weight: bold; color: #333;">IV：</label>
+                        <input type="text" id="aes-iv" placeholder="32 字符 Hex（16 字节）" autocomplete="off" style="min-width: 220px;">
+                        <button type="button" class="btn btn-secondary" onclick="aesGenIv()">生成 IV</button>
+                    </div>
+                    <div class="encoding-selector">
+                        <label style="margin-right: 12px; font-weight: bold; color: #333;">输入格式：</label>
+                        <label><input type="radio" name="aes-input-format" value="text" checked><span>文本(UTF-8)</span></label>
+                        <label><input type="radio" name="aes-input-format" value="hex"><span>Hex</span></label>
+                        <label><input type="radio" name="aes-input-format" value="base64"><span>Base64</span></label>
+                        <label style="margin-right: 12px; margin-left: 20px; font-weight: bold; color: #333;">输出格式：</label>
+                        <label><input type="radio" name="aes-output-format" value="base64" checked><span>Base64</span></label>
+                        <label><input type="radio" name="aes-output-format" value="hex"><span>Hex</span></label>
+                    </div>
+                    <div class="input-group">
+                        <label>输入内容（加密时为明文，解密时为密文）</label>
+                        <textarea id="aes-input" rows="8" placeholder="加密：输入明文（按上方“输入格式”解释）；解密：输入密文（Base64 或 Hex）。ECB 向量自测：密钥 0123456789abcdeffedcba9876543210 + Hex 明文 000102030405060708090a0b0c0d0e0f + 无填充 → 与 FIPS-197 标准向量一致"></textarea>
+                    </div>
+                    <div class="button-group">
+                        <button type="button" class="btn btn-primary" onclick="aesEncrypt()">加密</button>
+                        <button type="button" class="btn btn-primary" onclick="aesDecrypt()">解密</button>
+                        <button type="button" class="btn btn-secondary" onclick="aesClear()">清空</button>
+                    </div>
+                    <div class="input-group">
+                        <label>结果</label>
+                        <div class="result-container">
+                            <div class="result-area" id="aes-result"></div>
+                            <button class="copy-btn" onclick="copyToClipboard('aes-result')">复制</button>
+                        </div>
+                    </div>
+                    <p class="tool-hint">💡 密钥一律按裸字节使用（WordArray 传入，不走 CryptoJS 的 OpenSSL 口令派生），与 Node crypto 对拍一致；无填充时数据长度必须是 16 字节的整数倍。解密时"输入格式"须选密文格式（Base64/Hex）；"输出格式"在解密时 Base64=按 UTF-8 文本显示明文、Hex=显示明文十六进制。</p>
+
+                    <!-- PBKDF2 辅助小节：口令派生密钥并直接填入上方密钥框 -->
+                    <div class="input-group" style="margin-top: 18px;">
+                        <label>口令 → 密钥派生（PBKDF2-SHA256，长度沿用上方"密钥长度"单选）</label>
+                        <div class="gm-key-row">
+                            <input type="text" id="aes-pbkdf2-pass" placeholder="口令（password）" autocomplete="off">
+                            <input type="text" id="aes-pbkdf2-salt" placeholder="盐（salt）" autocomplete="off">
+                            <input type="number" id="aes-pbkdf2-iter" value="100000" min="1" step="1" title="迭代次数" style="width: 110px;">
+                            <button type="button" class="btn btn-primary" onclick="aesPbkdf2()">派生密钥</button>
+                        </div>
+                    </div>
+                    <p class="tool-hint">💡 派生结果为 Hex 密钥并自动填入上方密钥框（同时把密钥格式切回 Hex 由你手动确认）；走浏览器 crypto.subtle 标准接口，可用 Node crypto.pbkdf2Sync(口令, 盐, 迭代, 长度, 'sha256') 对拍。</p>
                 </div>
             </div>
 
@@ -1881,6 +2017,7 @@
     <script src="js/csvtool.js"></script>
     <!-- HMAC 计算 / HTML 实体 / 文本批量处理页脚本（自包含无依赖） -->
     <script src="js/hmac.js"></script>
+    <script src="js/aes.js"></script>
     <script src="js/htmlentity.js"></script>
     <script src="js/textkit.js"></script>
     <!-- 图片压缩页脚本（canvas 离屏重绘，自包含无依赖） -->
