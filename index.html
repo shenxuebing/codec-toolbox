@@ -965,9 +965,6 @@
                     <p class="tool-hint">💡 SM2 密钥密文依次尝试 裸 C1C3C2 / 裸 C1C2C3 / DER（GM/T 0010 SM2Cipher）三种形态；sm-crypto 0.3.2 的 doDecrypt 只返回 UTF-8 文本，本工具生成侧按"密钥 Hex 文本"口径加密——设备若按 16 原始字节加密且非合法 UTF-8 将无法还原。EnDataUtil 口径的密钥文件（如 sm2_app.enc）请到"国密 SM2/SM4"页的"EnDataUtil 格式兼容"区解密。</p>
                 </div>
 
-                <!-- 0016/0017 说明行：智能密码钥匙设备内密钥容器暂不做互转 -->
-                <p class="tool-hint">📌 GM/T 0016/0017 密钥容器为智能密码钥匙设备内格式，各厂商实现不同、无公开统一文件格式，暂不做互转；如有厂商样例数据可反馈补录。</p>
-
                 <!-- Section 4：GM/T 0009 加密密钥对生成（生成后立即回解自测） -->
                 <div class="section">
                     <h2>🗝️ GM/T 0009 加密密钥对生成</h2>
@@ -997,6 +994,49 @@
                         </div>
                     </div>
                     <p class="tool-hint">💡 流程：随机 16 字节 SM4 密钥 → SM4-ECB/PKCS7 加密私钥 → SM2（C1C3C2）加密 SM4 密钥 → 按布局 A 组装（01 01 + 1B 密钥密文长度 + 密钥密文 + 2B 大端私钥密文长度 + 私钥密文 + 公钥 64B（剥 04））。生成后立即回解自测（与本页解密函数对拍），私钥逐字节一致。</p>
+                </div>
+
+                <!-- Section 5：GM/T 0016/0018 密钥（ENVELOPEDKEYBLOB，SKF/SDF 导出的 ECC 密钥对保护结构） -->
+                <div class="section">
+                    <h2>📇 GM/T 0016/0018 密钥（ENVELOPEDKEYBLOB）</h2>
+                    <p class="tool-hint">GM/T 0016《智能密码钥匙密码应用接口规范》/ GM/T 0018《密码设备应用接口规范》导出的 ECC 密钥对保护结构（SKF_ExportSignPriKey / SDF_ExportSignKey_ECC 输出）：C 结构体内存映像、ULONG 一律小端；SM4 加密私钥 + SM2 加密对称密钥，与 GM/T 0009 数字信封同构、可互转。</p>
+                    <div class="encoding-selector">
+                        <label style="margin-right: 12px; font-weight: bold; color: #333;">操作：</label>
+                        <label><input type="radio" name="kt16-mode" value="parse" checked><span>解析 / 解密</span></label>
+                        <label><input type="radio" name="kt16-mode" value="build"><span>生成（私钥+公钥→Blob）</span></label>
+                        <label><input type="radio" name="kt16-mode" value="to0009"><span>Blob → GM/T 0009 信封</span></label>
+                        <label><input type="radio" name="kt16-mode" value="from0009"><span>GM/T 0009 信封 → Blob</span></label>
+                    </div>
+                    <div class="input-group">
+                        <label>输入（按操作模式解释）</label>
+                        <textarea id="kt16-input" rows="5" placeholder="解析 / 解密：粘贴 ENVELOPEDKEYBLOB（Hex 或 Base64）；生成模式：SM2 私钥（64 位 Hex），公钥填下方输入框..."></textarea>
+                    </div>
+                    <div class="input-group">
+                        <label>SM2 公钥（生成模式用，130 位 04 开头）</label>
+                        <div class="gm-key-row">
+                            <input type="text" id="kt16-pub" placeholder="生成模式：加密对称密钥的 SM2 公钥（04 开头 130 位 Hex）" autocomplete="off">
+                            <button type="button" class="btn btn-secondary" onclick="gmCopyInput('kt16-pub')">复制</button>
+                        </div>
+                    </div>
+                    <div class="input-group">
+                        <label>解密用 SM2 私钥（解析模式用，64 位 Hex）</label>
+                        <div class="gm-key-row">
+                            <input type="text" id="kt16-priv" placeholder="解析模式：保护公钥对应的 SM2 私钥（64 位 Hex），填写后解析并解密" autocomplete="off">
+                            <button type="button" class="btn btn-secondary" onclick="gmCopyInput('kt16-priv')">复制</button>
+                        </div>
+                    </div>
+                    <div class="button-group">
+                        <button type="button" class="btn btn-primary" onclick="kt16Run()">执行</button>
+                        <button type="button" class="btn btn-secondary" onclick="kt16Clear()">清空</button>
+                    </div>
+                    <div class="input-group">
+                        <label>结果</label>
+                        <div class="result-container">
+                            <div class="result-area" id="kt16-result">按上方操作单选执行后此处显示字段表与解密 / 转换产物</div>
+                            <button class="copy-btn" onclick="copyToClipboard('kt16-result')">复制</button>
+                        </div>
+                    </div>
+                    <p class="tool-hint">💡 字节布局（固定头 372 字节 + 变长 Cipher，总长 ≥ 388）：Version(4) + ulSymmAlgID(4) + ulBits(4) + cbEncryptedPriKey(64，SM4 密文右补零) + PubKey{BitLen(4)+X(64)+Y(64)} + ECCCipherBlob{X(64)+Y(64)+HASH(32)+CipherLen(4)+Cipher}。定长 64 字节坐标按 C 惯例右对齐（256 位值放末 32 字节），解析时自适应探测左右对齐；解密按 SM4-ECB 三口径自适应（前 48B PKCS7 / 前 32B 裸解 / 全 64B PKCS7）；对称密钥 SM2 密文按 C1C3C2 解，失败自动改试 C1C2C3；生成与转换均自带回环自校验。</p>
                 </div>
             </div>
 

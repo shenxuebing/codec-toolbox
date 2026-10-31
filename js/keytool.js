@@ -4,6 +4,7 @@
 // Section 2：PKCS#12 / PFX 结构查看（仅结构，不解密）
 // Section 3：GM/T 0009 加密密钥对解密（SM2 数字信封，头部两种口径自适应）
 // Section 4：GM/T 0009 加密密钥对生成（生成后立即回解自测）
+// Section 5：GM/T 0016/0018 密钥（ENVELOPEDKEYBLOB，解析/解密/生成/与 0009 互转）
 // 依赖（须先于本文件加载，Node 打桩时挂到全局）：
 //   js/asn1.js           → asn1ParseTlv / asn1DecodeOid / asn1OidName / asn1TagName / asn1ExtractDer
 //                          （node 对象结构 { tagFirst, constructed, headerLen, contentStart,
@@ -11,7 +12,8 @@
 //   js/gmsm.js           → gmDerTlv / gmDerLen / sm2ConvDerToParts / sm2ConvJoinBare
 //   js/vendor/sm-crypto.js → smCrypto.sm2 / smCrypto.sm4（0.3.2 本地化打包，自动挂 global.smCrypto）
 // 纯函数（ktOidToDerContent / ktParsePrivateKey / ktToPkcs8Core / ktToPkcs1Core / ktBuildPem /
-// ktP12StructSummary / kt9ParseHeader / kt9DecryptCore / kt9GenCore / kt9PrivToPkcs8Pem）
+// ktP12StructSummary / kt9ParseHeader / kt9DecryptCore / kt9GenCore / kt9PrivToPkcs8Pem /
+// kt16ParseCore / kt16DecryptCore / kt16BuildCore / kt16BlobTo0009Core / kt16From0009Core）
 // 不触碰 DOM，可在 Node 中单独加载打桩测试（同 gmsm.js 模式）。
 // ============================================================
 
@@ -1054,6 +1056,570 @@ function kt9GenClear() {
     document.getElementById('kt-9-gen-result').textContent = '';
 }
 
+// ============================================================
+// Section 5：GM/T 0016/0018 密钥（ENVELOPEDKEYBLOB）（纯函数区 + 页面动作）
+// ============================================================
+// ENVELOPEDKEYBLOB = GM/T 0016《智能密码钥匙密码应用接口规范》/ GM/T 0018《密码设备应用接口规范》
+// 导出的 ECC 密钥对保护结构（SKF_ExportSignPriKey / SDF_ExportSignKey_ECC 输出），
+// C 结构体的内存映像（ULONG 一律小端），与 GM/T 0009 数字信封同构：
+// SM4 对称密钥加密 SM2 私钥，SM2 公钥加密对称密钥（ECCCipherBlob）。
+//
+// 字节布局（源自用户提供的 byzk0016.h / byzk0018.h，两标准同构）：
+//   偏移   长度   字段（ULONG 一律小端）
+//   0      4     Version（版本，通常 1）
+//   4      4     ulSymmAlgID（SGD 算法标识）
+//   8      4     ulBits（对称密钥位长，通常 128）
+//   12     64    cbEncryptedPriKey（SM4 加密的私钥密文，定长 64 字节，不足右补零）
+//   76     4     PubKey.BitLen（通常 256）
+//   80     64    PubKey.X
+//   144    64    PubKey.Y
+//   208    64    ECCCipherBlob.X（对称密钥 SM2 密文 C1.x，定长 64）
+//   272    64    ECCCipherBlob.Y
+//   336    32    ECCCipherBlob.HASH（C3）
+//   368    4     ECCCipherBlob.CipherLen（小端）
+//   372    变长  ECCCipherBlob.Cipher（对称密钥密文 C2，通常 16 字节 = 128 位密钥）
+// 固定头 372 字节 + Cipher 变长；总长校验 ≥ 388。
+
+// SGD 算法标识常量表（名称映射；出处：GM/T 0016/0018 头文件 byzk0016.h / byzk0018.h）
+var KT16_SGD_ALGS = {
+    0x00000101: 'SGD_SM1_ECB',  0x00000102: 'SGD_SM1_CBC',  0x00000104: 'SGD_SM1_CFB',
+    0x00000108: 'SGD_SM1_OFB',  0x00000110: 'SGD_SM1_MAC',  0x00000120: 'SGD_SM1_CTR',
+    0x00000201: 'SGD_SSF33_ECB', 0x00000202: 'SGD_SSF33_CBC',
+    0x00000204: 'SGD_SSF33_CFB', 0x00000208: 'SGD_SSF33_OFB',
+    0x00004001: 'SGD_SM4_ECB',  0x00004002: 'SGD_SM4_CBC',
+    0x00004004: 'SGD_SM4_CFB',  0x00004008: 'SGD_SM4_OFB'
+};
+
+// 算法 ID → 8 位大写 Hex（展示用）
+function kt16AlgIdHex(id) {
+    var h = (id >>> 0).toString(16).toUpperCase();
+    while (h.length < 8) { h = '0' + h; }
+    return h;
+}
+
+// 小端读 4 字节 ULONG（手写移位，不依赖 DataView——C 结构体内存映像按小端解释）
+function kt16ReadU32Le(bytes, off) {
+    return (bytes[off] | (bytes[off + 1] << 8) | (bytes[off + 2] << 16) | (bytes[off + 3] << 24)) >>> 0;
+}
+
+// 数值 → 4 字节小端
+function kt16U32Le(v) {
+    return [v & 0xFF, (v >>> 8) & 0xFF, (v >>> 16) & 0xFF, (v >>> 24) & 0xFF];
+}
+
+// 定长 64 字节坐标数组取 32 字节有效值（自适应探测）：
+//   C 惯例为右对齐——256 位值放数组末尾 32 字节、前 32 字节为 0（本工具生成亦按此口径）；
+//   部分厂商左对齐（值在前 32 字节）。探测规则：前 32 字节全零 → 取后 32；否则取前 32。
+function kt16Coord32(bytes64) {
+    var frontZero = true;
+    for (var i = 0; i < 32; i++) {
+        if (bytes64[i] !== 0) { frontZero = false; break; }
+    }
+    return frontZero ? bytes64.slice(32) : bytes64.slice(0, 32);
+}
+
+// 32 字节（或更短）坐标 → 定长 64 字节右对齐数组（前补零，C 惯例）
+function kt16RightAlign64(bytes) {
+    var out = [];
+    for (var i = 0; i < 64 - bytes.length; i++) { out.push(0); }
+    return out.concat(ktToArray(bytes));
+}
+
+// 字节数组左补零到 32 字节（裸密文切分 / 公钥切半时坐标不足定长的防御性归一化）
+function kt16LeftPad32(bytes) {
+    var out = [];
+    for (var i = 0; i < 32 - bytes.length; i++) { out.push(0); }
+    return out.concat(ktToArray(bytes));
+}
+
+// 全零字节判定（公钥段是否为空的判断用）
+function kt16AllZero(bytes) {
+    for (var i = 0; i < bytes.length; i++) {
+        if (bytes[i] !== 0) { return false; }
+    }
+    return true;
+}
+
+// 功能 1：ENVELOPEDKEYBLOB 解析核心（纯函数）——按字节布局切字段
+// 返回 { ver, algId, algIdHex, algName, bits, encPriv, pubBitLen, pubX, pubY,
+//        cipherX, cipherY, hash, cipherLen, cipherHex, blobLen, warnings }
+// （encPriv / pubX / pubY / cipherX / cipherY / hash / cipherHex 均为小写 Hex 串，坐标为自适应取出的 32 字节有效值）
+function kt16ParseCore(bytes) {
+    if (!bytes || !bytes.length) {
+        throw new Error('ENVELOPEDKEYBLOB 数据为空');
+    }
+    if (bytes.length < 388) {
+        throw new Error('总长 ' + bytes.length + ' 字节，不足 ENVELOPEDKEYBLOB 最小长度 388 字节（固定头 372 + C2 密文至少 16）');
+    }
+    var cipherLen = kt16ReadU32Le(bytes, 368);
+    if (cipherLen === 0) {
+        throw new Error('ECCCipherBlob.CipherLen 为 0，不是合法的 ENVELOPEDKEYBLOB');
+    }
+    var warnings = [];
+    if (372 + cipherLen > bytes.length) {
+        throw new Error('CipherLen=' + cipherLen + ' 超出实际数据（固定头 372 + CipherLen 需 ≤ 总长 ' + bytes.length + ' 字节）');
+    }
+    if (372 + cipherLen < bytes.length) {
+        // 总长与 CipherLen 不一致：超出部分提示后忽略（部分导出口径会在结构体后追加厂商自定义数据）
+        warnings.push('结构体后含多余数据（' + (bytes.length - 372 - cipherLen) + ' 字节，已忽略）');
+    }
+    var algId = kt16ReadU32Le(bytes, 4);
+    var algName = KT16_SGD_ALGS[algId];
+    if (algId === 0x00004002) {
+        // 信封私钥保护实际都用 ECB（定长 64 字节字段无 IV 位置，CBC 无从谈起）；遇 CBC 标识提示后仍按 ECB 试
+        warnings.push('ulSymmAlgID 为 SGD_SM4_CBC：定长 64 字节私钥密文字段无 IV，实际信封保护通常按 ECB 实现，本工具按 SM4-ECB 尝试');
+    }
+    var pubX64 = bytes.slice(80, 144);
+    var pubY64 = bytes.slice(144, 208);
+    return {
+        ver: kt16ReadU32Le(bytes, 0),
+        algId: algId,
+        algIdHex: kt16AlgIdHex(algId),
+        algName: algName || '未知算法',
+        bits: kt16ReadU32Le(bytes, 8),
+        encPriv: ktBytesToHex(bytes.slice(12, 76)),
+        pubBitLen: kt16ReadU32Le(bytes, 76),
+        pubX: ktBytesToHex(kt16Coord32(pubX64)),
+        pubY: ktBytesToHex(kt16Coord32(pubY64)),
+        cipherX: ktBytesToHex(kt16Coord32(bytes.slice(208, 272))),
+        cipherY: ktBytesToHex(kt16Coord32(bytes.slice(272, 336))),
+        hash: ktBytesToHex(bytes.slice(336, 368)),
+        cipherLen: cipherLen,
+        cipherHex: ktBytesToHex(bytes.slice(372, 372 + cipherLen)),
+        blobLen: bytes.length,
+        warnings: warnings
+    };
+}
+
+// ECCCipherBlob 拼裸密文解出对称密钥：C1C3C2 优先，失败改试 C1C2C3；
+// 解出内容口径与 Section 3 的 kt9UnwrapKey 一致（Hex 文本口径 32 字符 / 原始字节口径 16 字符）
+function kt16UnwrapKey(f, privHex) {
+    var tries = [
+        { hex: f.cipherX + f.cipherY + f.hash + f.cipherHex, mode: 1, fmt: 'C1C3C2' },
+        { hex: f.cipherX + f.cipherY + f.cipherHex + f.hash, mode: 0, fmt: 'C1C2C3' }
+    ];
+    for (var i = 0; i < tries.length; i++) {
+        var t = tries[i];
+        try {
+            var plain = smCrypto.sm2.doDecrypt(t.hex, privHex, t.mode);
+            if (plain === '') {
+                throw new Error('C3 校验未通过');
+            }
+            if (/^[0-9a-fA-F]{32}$/.test(plain)) {
+                return { keyHex: plain.toLowerCase(), fmt: t.fmt + '，Hex 文本口径' };
+            }
+            if (plain.length === 16) {
+                // 16 个字符的文本：全 ASCII 时字符码即 16 个原始字节
+                var bs = [];
+                for (var c = 0; c < 16; c++) { bs.push(plain.charCodeAt(c) & 0xFF); }
+                return { keyHex: ktBytesToHex(bs), fmt: t.fmt + '，原始字节口径' };
+            }
+            throw new Error('解出内容为 ' + plain.length + ' 字符文本，不是 16 字节对称密钥');
+        } catch (e) {
+            // 默认出口失败（16 字节真密钥含非 ASCII 字节时 UTF-8 文本出口必然乱码）：
+            // 用 output:'array' 字节出口兜底——真实 SKF/SDF 设备导出的 Blob 走该口径
+            try {
+                var arr = smCrypto.sm2.doDecrypt(t.hex, privHex, t.mode, { output: 'array' });
+                if (arr && arr.length === 16) {
+                    return { keyHex: ktBytesToHex(arr), fmt: t.fmt + '，原始字节口径（array 出口）' };
+                }
+            } catch (e2) { /* array 出口也不可用，继续下一形态 */ }
+        }
+    }
+    return null;
+}
+
+// cbEncryptedPriKey（定长 64 字节）SM4-ECB 解密自适应：
+//   ① 前 48 字节按 PKCS7（32B 私钥 + 16B 填充 → 48B 密文，本工具生成与多数设备口径，尾部 16 字节为补零）
+//   ② 前 32 字节裸解（32B 私钥恰两整块、无填充口径，尾部 32 字节为补零）
+//   ③ 全 64 字节按 PKCS7（密文占满定长字段口径）
+// 成功判据 = 解出且剥填充后恰 32 字节（sm-crypto 的去填充为盲剥不校验填充字节，长度即主判据）
+function kt16Sm4DecryptPriv(encPrivBytes, keyHex) {
+    var attempts = [
+        { len: 48, padding: 'pkcs#5', label: '前 48 字节 PKCS7' },
+        { len: 32, padding: 'none', label: '前 32 字节裸解' },
+        { len: 64, padding: 'pkcs#5', label: '全 64 字节 PKCS7' }
+    ];
+    for (var i = 0; i < attempts.length; i++) {
+        var a = attempts[i];
+        try {
+            var out = smCrypto.sm4.decrypt(ktBytesToHex(encPrivBytes.slice(0, a.len)), keyHex,
+                { padding: a.padding, output: 'array' });
+            if (out && out.length === 32) {
+                return { privHex: ktBytesToHex(out), fmt: a.label };
+            }
+        } catch (e) { /* 该口径失败，继续 */ }
+    }
+    throw new Error('SM4-ECB 解密私钥密文失败（已按 前48B-PKCS7 / 前32B-裸解 / 全64B-PKCS7 三口径尝试，' +
+        '均未解出 32 字节私钥；对称密钥可能不正确）');
+}
+
+// 功能 2：ENVELOPEDKEYBLOB 解密核心（纯函数）：blobBytes = Blob，privHex = 保护公钥对应方 SM2 私钥（64 位 Hex）
+// 返回 { fields（kt16ParseCore 结果）, keyHex, sm2Fmt, sm4Fmt, privHex, pubHex, pem }
+function kt16DecryptCore(blobBytes, privHex) {
+    var priv = String(privHex == null ? '' : privHex).replace(/[\s:,]/g, '').toLowerCase();
+    if (!/^[0-9a-f]{64}$/.test(priv)) {
+        throw new Error('解密用 SM2 私钥必须是 64 位 Hex（保护公钥对应方私钥）');
+    }
+    var f = kt16ParseCore(blobBytes);
+    var unwrapped = kt16UnwrapKey(f, priv);
+    if (!unwrapped) {
+        throw new Error('SM2 解密对称密钥失败（已按 C1C3C2 / C1C2C3 两形态尝试）：' +
+            '请核对解密用 SM2 私钥是否为 ECCCipherBlob 加密公钥的对应方私钥');
+    }
+    var keyHex = unwrapped.keyHex;
+    if (!/^[0-9a-f]{32}$/.test(keyHex)) {
+        throw new Error('对称密钥应为 16 字节（32 位 Hex），当前值异常');
+    }
+    var privOut = kt16Sm4DecryptPriv(ktHexToBytes(f.encPriv), keyHex);
+    // 公钥段：BitLen 为 0 或 X/Y 全零视为无公钥（PEM 不携带 [1] 段）
+    var pubHex = (f.pubBitLen === 0 || (kt16AllZero(ktHexToBytes(f.pubX)) && kt16AllZero(ktHexToBytes(f.pubY))))
+        ? null : f.pubX + f.pubY;
+    return {
+        fields: f,
+        keyHex: keyHex,
+        sm2Fmt: unwrapped.fmt,
+        sm4Fmt: privOut.fmt,
+        privHex: privOut.privHex,
+        pubHex: pubHex,
+        pem: kt9PrivToPkcs8Pem(privOut.privHex, pubHex)
+    };
+}
+
+// 通用组装：字段对象（ver/algId/bits/encPriv 定长 64/pubBitLen/pubX/pubY/c1x/c1y/hash/cipher）→ Blob 字节数组
+// 坐标一律右对齐填充进定长 64 字节数组（前 32 字节补零，C 惯例：256 位值放数组末尾）
+function kt16AssembleBlob(p) {
+    return []
+        .concat(kt16U32Le(p.ver), kt16U32Le(p.algId), kt16U32Le(p.bits),
+            p.encPriv,
+            kt16U32Le(p.pubBitLen), kt16RightAlign64(p.pubX), kt16RightAlign64(p.pubY),
+            kt16RightAlign64(p.c1x), kt16RightAlign64(p.c1y), p.hash,
+            kt16U32Le(p.cipher.length), p.cipher);
+}
+
+// 功能 3：ENVELOPEDKEYBLOB 生成核心（纯函数）：privHex 待保护私钥，pubHex130 加密用公钥（04 开头，兼容 128 位裸坐标）
+// 流程：随机 16B SM4 密钥 → SM4-ECB/PKCS7 加密 32B 私钥（48B 密文右补零至 64）→
+//       SM2（C1C3C2）加密 SM4 密钥 → 组装 Blob（Version=1、SGD_SM4_ECB、bits=128、坐标右对齐）
+// 返回 { bytes, hex（大写）, base64, keyHex }；组装后立即调 kt16DecryptCore 自回环校验私钥一致，不一致直接抛错
+function kt16BuildCore(privHex, pubHex) {
+    var priv = String(privHex == null ? '' : privHex).replace(/[\s:,]/g, '').toLowerCase();
+    if (!/^[0-9a-f]{64}$/.test(priv)) {
+        throw new Error('SM2 私钥必须是 64 位 Hex（32 字节）');
+    }
+    var pub = String(pubHex == null ? '' : pubHex).replace(/[\s:,]/g, '').toLowerCase();
+    if (/^[0-9a-f]{128}$/.test(pub)) {
+        pub = '04' + pub; // 128 位裸坐标 → 补未压缩点前缀
+    }
+    if (!/^04[0-9a-f]{128}$/.test(pub)) {
+        throw new Error('SM2 公钥必须是 04 开头的 130 位 Hex（未压缩点）');
+    }
+    var key = ktRandomHex32();
+
+    // SM4-ECB/PKCS7 加密 32B 私钥 → 48B 密文右补零至定长 64（PKCS7 填充字节 ≥1，尾部补零不影响解密侧剥填充）
+    var privCipher = ktHexToBytes(smCrypto.sm4.encrypt(ktHexToBytes(priv), key, { padding: 'pkcs#5' }));
+    while (privCipher.length < 64) { privCipher.push(0); }
+
+    // SM2（C1C3C2）加密对称密钥：与 0009 生成侧同口径——密钥按 32 字符 Hex 文本加密（全 ASCII，逐字符即字节）
+    var keyCipher = ktHexToBytes(smCrypto.sm2.doEncrypt(key, pub, 1));
+    if (keyCipher.length < 96) {
+        throw new Error('SM2 密文异常（' + keyCipher.length + ' 字节，至少应为 C1 64 + C3 32 = 96 字节）');
+    }
+    var out = kt16AssembleBlob({
+        ver: 1,
+        algId: 0x00004001, // SGD_SM4_ECB
+        bits: 128,
+        encPriv: privCipher,
+        pubBitLen: 256,
+        pubX: ktHexToBytes(pub.substr(2, 64)),
+        pubY: ktHexToBytes(pub.substr(66, 64)),
+        c1x: keyCipher.slice(0, 32),
+        c1y: keyCipher.slice(32, 64),
+        hash: keyCipher.slice(64, 96),
+        cipher: keyCipher.slice(96)
+    });
+
+    // 自回环校验：立即按解密核心解回，私钥必须逐字节一致（不一致说明组装或口径有误，直接抛错不出数据）
+    var back = kt16DecryptCore(out, priv);
+    if (back.privHex !== priv) {
+        throw new Error('自回环校验失败：解回私钥与输入不一致，已放弃输出');
+    }
+    return {
+        bytes: out,
+        hex: ktBytesToHex(out).toUpperCase(),
+        base64: ktBytesToBase64(out),
+        keyHex: key
+    };
+}
+
+// 0009 头部解出的对称密钥密文（keyCipher）→ { x, y, hash, cipher } 四段：
+// 按裸 C1C3C2 切分（kt9GenCore 及多数设备口径）；容忍 04 前缀；DER（GM/T 0010）形态复用 sm2ConvDerToParts 归一化
+function kt16SplitSm2(keyCipher) {
+    var bytes = ktToArray(keyCipher);
+    if (bytes[0] === 0x30) {
+        var p = sm2ConvDerToParts(bytes); // 坐标已归一化为 32 字节
+        return { x: p.x, y: p.y, hash: p.hash, cipher: p.cipher, fmt: 'DER（GM/T 0010）' };
+    }
+    var hex = ktBytesToHex(bytes);
+    if (hex.substr(0, 2) === '04' && hex.length >= 194) {
+        hex = hex.substr(2); // 去多余 04 前缀（口径同 kt9Sm2CipherVariants）
+    }
+    bytes = ktHexToBytes(hex);
+    if (bytes.length < 96) {
+        throw new Error('对称密钥 SM2 密文不足 96 字节（C1 64 + C3 32），当前 ' + bytes.length + ' 字节');
+    }
+    return {
+        x: kt16LeftPad32(bytes.slice(0, 32)),
+        y: kt16LeftPad32(bytes.slice(32, 64)),
+        hash: bytes.slice(64, 96),
+        cipher: bytes.slice(96),
+        fmt: '裸 C1C3C2'
+    };
+}
+
+// cbEncryptedPriKey 定长 64 字节剥尾部补零（PKCS7 填充字节 ≥1，真密文末字节必非零，剥零安全）
+function kt16StripTailZero(encPrivBytes) {
+    var end = encPrivBytes.length;
+    while (end > 0 && encPrivBytes[end - 1] === 0) { end--; }
+    var out = encPrivBytes.slice(0, end);
+    if (out.length < 16 || out.length % 16 !== 0) {
+        throw new Error('私钥密文剥尾部补零后为 ' + out.length + ' 字节，不是 16 字节整倍数（密文可能未按补零口径填充）');
+    }
+    return out;
+}
+
+// 功能 4：Blob → GM/T 0009 信封（纯函数）：
+// Blob 字段 → 0009 布局 A：01 01 <keyCipherLen 1B> <对称密钥密文 = C1C3C2 的 x+y+hash+cipher>
+//             <privCipherLen 2B 大端> <SM4 密文（剥尾部补零）> + 尾部公钥 64B（公钥段全零则省略）
+// 返回 { bytes, hex（大写）, base64, keyCipherLen, privCipherLen }；转换后立即转回 Blob 回环对拍各密文段
+function kt16BlobTo0009Core(blobBytes) {
+    var f = kt16ParseCore(blobBytes);
+    var keyCipher = ktHexToBytes(f.cipherX + f.cipherY + f.hash + f.cipherHex);
+    if (keyCipher.length > 255) {
+        throw new Error('SM2 密文 ' + keyCipher.length + ' 字节，超出布局 A 的 1 字节密钥长度字段上限（255）');
+    }
+    var privCipher = kt16StripTailZero(ktHexToBytes(f.encPriv));
+    var hasPub = f.pubBitLen !== 0 && !(kt16AllZero(ktHexToBytes(f.pubX)) && kt16AllZero(ktHexToBytes(f.pubY)));
+    var out = [0x01, 0x01, keyCipher.length]
+        .concat(keyCipher,
+            [(privCipher.length >> 8) & 0xFF, privCipher.length & 0xFF],
+            privCipher,
+            hasPub ? ktHexToBytes(f.pubX + f.pubY) : []);
+
+    // 自回环校验：转回 ENVELOPEDKEYBLOB 后各密文段应逐字节一致（自适应取值 × 右对齐填充为无损互逆）
+    var back = kt16ParseCore(kt16From0009Core(out).bytes);
+    if (back.cipherX + back.cipherY + back.hash + back.cipherHex !== f.cipherX + f.cipherY + f.hash + f.cipherHex ||
+        ktBytesToHex(kt16StripTailZero(ktHexToBytes(back.encPriv))) !== ktBytesToHex(privCipher)) {
+        throw new Error('自回环校验失败：转回 ENVELOPEDKEYBLOB 后密文段不一致，已放弃输出');
+    }
+    return {
+        bytes: out,
+        hex: ktBytesToHex(out).toUpperCase(),
+        base64: ktBytesToBase64(out),
+        keyCipherLen: keyCipher.length,
+        privCipherLen: privCipher.length
+    };
+}
+
+// 功能 5：GM/T 0009 信封 → Blob（纯函数）：复用 kt9ParseHeader 解 0009（布局 A/B 自适应），
+// 对称密钥密文按裸 C1C3C2 切 x/y/hash/cipher，SM4 密文右补零到定长 64；
+// algId = SGD_SM4_ECB，bits = 128（0009 算法为 SM4、密钥恒 16 字节；C2 长度依加密口径
+// 而异——Hex 文本口径 32 字节 / 设备原始字节口径 16 字节——不代表密钥位数）
+// 返回 { bytes, hex（大写）, base64, sm2Fmt, warnings }
+function kt16From0009Core(envBytes) {
+    var h = kt9ParseHeader(envBytes);
+    var parts = kt16SplitSm2(h.keyCipher);
+    if (parts.cipher.length === 0) {
+        throw new Error('对称密钥 SM2 密文缺少 C2 段（无法推出密钥位长）');
+    }
+    var privCipher = ktToArray(h.privCipher);
+    if (privCipher.length > 64) {
+        throw new Error('SM4 私钥密文 ' + privCipher.length + ' 字节超出 ENVELOPEDKEYBLOB 定长字段（64 字节）');
+    }
+    while (privCipher.length < 64) { privCipher.push(0); }
+    var warnings = [];
+    var pubX, pubY, pubBitLen;
+    if (h.pub && h.pub.length === 64) {
+        pubX = h.pub.slice(0, 32);
+        pubY = h.pub.slice(32, 64);
+        pubBitLen = 256;
+    } else {
+        // 0009 数据无尾部公钥：Blob 公钥段置零（解密不依赖公钥段，仅 PEM 不携带公钥）
+        pubX = [];
+        pubY = [];
+        pubBitLen = 0;
+        warnings.push('0009 数据无尾部公钥，Blob 公钥段（BitLen/X/Y）已置零');
+    }
+    var out = kt16AssembleBlob({
+        ver: 1,
+        algId: 0x00004001, // SGD_SM4_ECB
+        bits: 128,          // SM4 密钥位长（恒 128；C2 长度≠密钥长度，见函数头注释）
+        encPriv: privCipher,
+        pubBitLen: pubBitLen,
+        pubX: pubX,
+        pubY: pubY,
+        c1x: parts.x,
+        c1y: parts.y,
+        hash: parts.hash,
+        cipher: parts.cipher
+    });
+    return {
+        bytes: out,
+        hex: ktBytesToHex(out).toUpperCase(),
+        base64: ktBytesToBase64(out),
+        sm2Fmt: parts.fmt,
+        warnings: warnings
+    };
+}
+
+// ---------------- Section 5：页面动作 ----------------
+
+// 当前操作单选（parse / build / to0009 / from0009）
+function kt16Mode() {
+    var el = document.querySelector('input[name="kt16-mode"]:checked');
+    return el ? el.value : 'parse';
+}
+
+// Hex 串截断展示（超长取头尾，标注总字节数）
+function kt16HexBrief(hex, head, tail) {
+    var s = String(hex);
+    head = head || 32;
+    tail = tail || 16;
+    if (s.length <= head + tail + 6) { return s; }
+    return s.substr(0, head) + '…' + s.substr(s.length - tail) + '（共 ' + (s.length / 2) + ' 字节）';
+}
+
+// 字段表展示（解析结果的多行文本）
+function kt16FieldLines(f) {
+    var ZERO64 = '0000000000000000000000000000000000000000000000000000000000000000'; // 32 字节全零 Hex
+    var lines = [
+        '结构解析（总长 ' + f.blobLen + ' 字节 = 固定头 372 + Cipher ' + f.cipherLen + ' 字节）：',
+        'Version：' + f.ver,
+        'ulSymmAlgID：' + f.algName + '（0x' + f.algIdHex + '）',
+        'ulBits：' + f.bits + '（对称密钥位长）',
+        'cbEncryptedPriKey（64 字节，SM4 私钥密文）：' + kt16HexBrief(f.encPriv),
+        'PubKey.BitLen：' + f.pubBitLen,
+        'PubKey.X（32 字节有效值）：' + (f.pubX === ZERO64 ? '（全零，无公钥）' : kt16HexBrief(f.pubX)),
+        'PubKey.Y（32 字节有效值）：' + (f.pubY === ZERO64 ? '（全零，无公钥）' : kt16HexBrief(f.pubY)),
+        'ECCCipherBlob.X（C1.x 32 字节）：' + kt16HexBrief(f.cipherX),
+        'ECCCipherBlob.Y（C1.y 32 字节）：' + kt16HexBrief(f.cipherY),
+        'ECCCipherBlob.HASH（C3，32 字节）：' + kt16HexBrief(f.hash),
+        'ECCCipherBlob.CipherLen：' + f.cipherLen + '（C2 对称密钥密文 ' + f.cipherLen + ' 字节）'
+    ];
+    for (var i = 0; i < f.warnings.length; i++) {
+        lines.push('⚠ ' + f.warnings[i]);
+    }
+    return lines;
+}
+
+// "执行"按钮：按操作单选分发到对应核心函数
+function kt16Run() {
+    try {
+        var mode = kt16Mode();
+        var inputEl = document.getElementById('kt16-input');
+        if (!inputEl.value.trim()) {
+            throw new Error(mode === 'build'
+                ? '请输入待保护的 SM2 私钥（64 位 Hex）'
+                : '请输入 ENVELOPEDKEYBLOB 或 GM/T 0009 密钥对保护数据（Hex 或 Base64）');
+        }
+        var lines = [];
+        if (mode === 'build') {
+            var r = kt16BuildCore(inputEl.value, document.getElementById('kt16-pub').value);
+            lines = [
+                'ENVELOPEDKEYBLOB 生成成功（' + r.bytes.length + ' 字节，已通过自回环校验）：',
+                'Hex（大写）：',
+                r.hex,
+                '——',
+                'Base64：',
+                r.base64,
+                '——',
+                '本次 SM4 对称密钥（16 字节）：' + r.keyHex,
+                '自回环：✅ kt16DecryptCore 解回私钥逐字节一致'
+            ];
+        } else if (mode === 'to0009') {
+            var r2 = kt16BlobTo0009Core(ktInputToBytes(inputEl.value));
+            lines = [
+                '已转换为 GM/T 0009 密钥对保护数据（布局 A，' + r2.bytes.length + ' 字节）：',
+                'Hex（大写）：',
+                r2.hex,
+                '——',
+                'Base64：',
+                r2.base64,
+                '——',
+                'SM2 密钥密文 ' + r2.keyCipherLen + ' 字节｜SM4 私钥密文 ' + r2.privCipherLen + ' 字节（已剥尾部补零）',
+                '自回环：✅ 转回 ENVELOPEDKEYBLOB 后各密文段逐字节一致'
+            ];
+        } else if (mode === 'from0009') {
+            var r3 = kt16From0009Core(ktInputToBytes(inputEl.value));
+            lines = [
+                '已转换为 ENVELOPEDKEYBLOB（' + r3.bytes.length + ' 字节，对称密钥密文按「' + r3.sm2Fmt + '」切分）：',
+                'Hex（大写）：',
+                r3.hex,
+                '——',
+                'Base64：',
+                r3.base64
+            ];
+            for (var w = 0; w < r3.warnings.length; w++) {
+                lines.push('⚠ ' + r3.warnings[w]);
+            }
+        } else { // parse：解析（私钥框非空时一并解密）
+            var blob = ktInputToBytes(inputEl.value);
+            var f = kt16ParseCore(blob);
+            lines = kt16FieldLines(f);
+            var privVal = String(document.getElementById('kt16-priv').value || '').replace(/[\s:,]/g, '');
+            if (privVal) {
+                var d = kt16DecryptCore(blob, privVal);
+                lines.push('——');
+                lines.push('SM2 解密（' + d.sm2Fmt + '）对称密钥（16 字节）：' + d.keyHex);
+                lines.push('SM4 解密（' + d.sm4Fmt + '）私钥（64 位 Hex）：' + d.privHex);
+                lines.push(d.pubHex ? '公钥（04 + X + Y）：04' + d.pubHex : '公钥：Blob 内无公钥段（已置零）');
+                lines.push('——');
+                lines.push('PKCS#8 PEM（国产形态）：');
+                lines.push(d.pem);
+            } else {
+                lines.push('——');
+                lines.push('（填写上方「解密用 SM2 私钥」后，执行解析将一并解密出私钥与 PKCS#8 PEM）');
+            }
+        }
+        document.getElementById('kt16-result').textContent = lines.join('\n');
+        showNotification('GM/T 0016/0018 密钥：执行成功');
+    } catch (e) {
+        gmShowError('kt16-result', e);
+    }
+}
+
+// "清空"按钮
+function kt16Clear() {
+    document.getElementById('kt16-input').value = '';
+    document.getElementById('kt16-pub').value = '';
+    document.getElementById('kt16-priv').value = '';
+    document.getElementById('kt16-result').textContent = '';
+}
+
+// 操作单选切换时更新输入框占位提示（按模式解释输入内容）
+function kt16Init() {
+    var placeholders = {
+        parse: '解析 / 解密：粘贴 ENVELOPEDKEYBLOB（Hex 或 Base64）；填写下方私钥可一并解密...',
+        build: '生成：SM2 私钥（64 位 Hex），加密用公钥填下方输入框...',
+        to0009: 'Blob → 0009：粘贴 ENVELOPEDKEYBLOB（Hex 或 Base64）...',
+        from0009: '0009 → Blob：粘贴 GM/T 0009 密钥对保护数据（Hex 或 Base64）...'
+    };
+    var radios = document.querySelectorAll('input[name="kt16-mode"]');
+    for (var i = 0; i < radios.length; i++) {
+        radios[i].addEventListener('change', function () {
+            var inputEl = document.getElementById('kt16-input');
+            if (inputEl) { inputEl.placeholder = placeholders[kt16Mode()] || ''; }
+        });
+    }
+}
+// 初始化时机口径同 ktInit（body 尾加载直接执行；提前加载时等 DOM 就绪；Node 无 document 跳过）
+if (typeof document === 'undefined') {
+    // Node 环境：不初始化页面，仅暴露纯函数供测试
+} else if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', kt16Init);
+} else {
+    kt16Init();
+}
+
 // ---------------- 初始化 ----------------
 
 // 绑定 PKCS#12 拖拽区（点击 / 拖拽 / 释放），口径同 asn1.js 的 asn1Init
@@ -1121,6 +1687,11 @@ if (typeof module !== 'undefined' && module.exports) {
         kt9Sm2CipherVariants: kt9Sm2CipherVariants,
         kt9DecryptCore: kt9DecryptCore,
         kt9GenCore: kt9GenCore,
-        kt9PrivToPkcs8Pem: kt9PrivToPkcs8Pem
+        kt9PrivToPkcs8Pem: kt9PrivToPkcs8Pem,
+        kt16ParseCore: kt16ParseCore,
+        kt16DecryptCore: kt16DecryptCore,
+        kt16BuildCore: kt16BuildCore,
+        kt16BlobTo0009Core: kt16BlobTo0009Core,
+        kt16From0009Core: kt16From0009Core
     };
 }
