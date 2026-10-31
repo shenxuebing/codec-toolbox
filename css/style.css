@@ -1704,3 +1704,15 @@ body {
 #oid-result table tbody tr[data-oid]:hover {
     background: #eef1ff;
 }
+
+/* ============================================================
+   密钥工具页（page-keytool）
+   （复用 .section/.input-group/.button-group/.btn/.result-container/
+   .result-area/.copy-btn/.tool-hint/.gm-key-row/.encoding-selector/
+   .file-drop-zone 等既有类，此处仅补只读结果框高度）
+   ============================================================ */
+
+/* 互转结果只读框：加高到约 8 行（覆盖 .input-group textarea 默认的 150px） */
+#kt-key-result {
+    height: 200px;
+}

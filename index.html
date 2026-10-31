@@ -28,6 +28,7 @@
             <button type="button" class="menu-item" data-page="page-aes"><span class="menu-icon">🔐</span><span class="menu-text">AES 加解密</span></button>
             <button type="button" class="menu-item" data-page="page-asn1"><span class="menu-icon">🧬</span><span class="menu-text">ASN.1 查看器</span></button>
             <button type="button" class="menu-item" data-page="page-cert"><span class="menu-icon">🪪</span><span class="menu-text">证书查看</span></button>
+            <button type="button" class="menu-item" data-page="page-keytool"><span class="menu-icon">🗝️</span><span class="menu-text">密钥工具</span></button>
             <button type="button" class="menu-item" data-page="page-oid"><span class="menu-icon">🧭</span><span class="menu-text">OID 查询</span></button>
             <button type="button" class="menu-item" data-page="page-file"><span class="menu-icon">📁</span><span class="menu-text">文件工具</span></button>
             <button type="button" class="menu-item" data-page="page-timestamp"><span class="menu-icon">🕐</span><span class="menu-text">时间戳转换</span></button>
@@ -864,6 +865,138 @@
                     <!-- 解析结果：由 js/cert.js 全 DOM API 动态渲染（基本信息 / DN / 有效期 / 公钥 / 扩展 / 签名值） -->
                     <div id="cert-result" class="cert-result"></div>
                     <p class="tool-hint">💡 支持 PEM / Base64 / Hex 输入与国密 SM2 证书（SM2/SM3 算法 OID 自动标注国密）；keyUsage / basicConstraints / SAN / EKU 等常用扩展结构化展示，其余扩展显示 Hex 截断（完整内容可点"用 ASN.1 树查看"逐节点核对）；本工具只做结构解析，不校验签名。</p>
+                </div>
+            </div>
+
+            <!-- 密钥工具：私钥 PKCS#1↔PKCS#8 互转 / PKCS#12 结构查看 / GM/T 0009 密钥对解密与生成（复用 asn1.js 与 gmsm.js 的全局函数） -->
+            <div id="page-keytool" class="page">
+                <!-- Section 1：私钥查看与 PKCS#1 ↔ PKCS#8 互转（RSA / ECC / SM2 通吃） -->
+                <div class="section">
+                    <h2>🗝️ 私钥查看与 PKCS#1 ↔ PKCS#8 互转</h2>
+                    <div class="input-group">
+                        <label>私钥输入（PEM 或 Base64/Hex DER）</label>
+                        <textarea id="kt-key-input" rows="8" placeholder="粘贴 PEM（-----BEGIN RSA PRIVATE KEY----- / -----BEGIN EC PRIVATE KEY----- / -----BEGIN PRIVATE KEY----- / -----BEGIN ENCRYPTED PRIVATE KEY-----）或 Base64/Hex 编码的 DER 私钥..."></textarea>
+                    </div>
+                    <div class="button-group">
+                        <button type="button" class="btn btn-primary" onclick="ktInspect()">查看与识别</button>
+                        <button type="button" class="btn btn-primary" onclick="ktToPkcs8()">→ PKCS#8</button>
+                        <button type="button" class="btn btn-primary" onclick="ktToPkcs1()">→ PKCS#1</button>
+                        <button type="button" class="btn btn-secondary" onclick="ktClear()">清空</button>
+                    </div>
+                    <div class="input-group">
+                        <label>识别结果</label>
+                        <div class="result-container">
+                            <div class="result-area gm-oneline" id="kt-key-info">点击"查看与识别"后此处显示私钥格式与字段摘要</div>
+                            <button class="copy-btn" onclick="copyToClipboard('kt-key-info')">复制</button>
+                        </div>
+                    </div>
+                    <!-- SEC1 无 [0] 曲线段时转 PKCS#8 需指定曲线（单选 value 直接为曲线点分 OID） -->
+                    <div class="encoding-selector">
+                        <label style="margin-right: 12px; font-weight: bold; color: #333;">SEC1 无曲线段时的曲线：</label>
+                        <label><input type="radio" name="kt-ec-curve" value="1.2.156.10197.1.301" checked><span>SM2</span></label>
+                        <label><input type="radio" name="kt-ec-curve" value="1.2.840.10045.3.1.7"><span>prime256v1</span></label>
+                        <label><input type="radio" name="kt-ec-curve" value="1.3.132.0.34"><span>secp384r1</span></label>
+                        <label><input type="radio" name="kt-ec-curve" value="1.3.132.0.35"><span>secp521r1</span></label>
+                    </div>
+                    <div class="input-group">
+                        <label>互转结果（PEM，Base64 按 64 字符折行）</label>
+                        <div class="result-container">
+                            <textarea id="kt-key-result" rows="8" readonly placeholder="点击“→ PKCS#8”或“→ PKCS#1”后此处显示互转结果 PEM"></textarea>
+                            <button type="button" class="btn btn-secondary" onclick="gmCopyInput('kt-key-result')">复制结果</button>
+                        </div>
+                    </div>
+                    <p class="tool-hint">💡 支持 RSA PKCS#1 / ECC SEC1 / PKCS#8 / 加密 PKCS#8 四种形态识别与互转；SEC1 → PKCS#8 不改写内层（原样搬运），曲线 OID 取 SEC1 的 [0] 段、无 [0] 时按上方单选指定；PKCS#8 → SEC1 剥壳取内层，内层缺 [0] 曲线段且外层已知曲线时自动补写（私钥与公钥原样保留，产物与 OpenSSL 的 EC PRIVATE KEY 导出一致）；SM2 曲线 OID（1.2.156.10197.1.301）无论按 params 还是直接作 algorithm（国产写法，1.key 即此形态）均可识别；加密 PKCS#8（PBES2）仅识别不转换，请先用 OpenSSL 解密。</p>
+                </div>
+
+                <!-- Section 2：PKCS#12 / PFX 结构查看（仅结构，不解密） -->
+                <div class="section">
+                    <h2>🗝️ PKCS#12 / PFX 结构查看</h2>
+                    <div class="input-group">
+                        <label>或上传 .pfx / .p12 文件</label>
+                        <!-- 拖拽/点击二合一的文件选择区：隐藏的 input 实际负责弹出文件选择框 -->
+                        <div id="kt-p12-drop" class="file-drop-zone">
+                            拖拽 .pfx / .p12 文件到此处，或点击选择文件
+                            <input type="file" id="kt-p12-file" accept=".pfx,.p12" style="display:none;">
+                        </div>
+                    </div>
+                    <div class="input-group">
+                        <label>或粘贴 Base64 / Hex / PEM 内容</label>
+                        <textarea id="kt-p12-input" rows="5" placeholder="粘贴 PKCS#12 文件的 Base64 或 Hex 编码内容（识别到 PEM 头时按 PEM 处理）..."></textarea>
+                    </div>
+                    <div class="button-group">
+                        <button type="button" class="btn btn-primary" onclick="ktP12Run()">解析结构</button>
+                        <button type="button" class="btn btn-secondary" onclick="ktP12Clear()">清空</button>
+                    </div>
+                    <div class="input-group">
+                        <label>解析结果</label>
+                        <div class="result-container">
+                            <div class="result-area" id="kt-p12-result">解析后此处显示 PFX 概要与递归结构树</div>
+                            <button class="copy-btn" onclick="copyToClipboard('kt-p12-result')">复制</button>
+                        </div>
+                    </div>
+                    <p class="tool-hint">💡 PFX = SEQUENCE{ version(3), authSafe ContentInfo（data → AuthenticatedSafe → SafeBags 逐层嵌套）, macData 可选 }；证书按 X.509 结构（SEQUENCE{tbs, 签名算法, BIT STRING 签名值}）计数；口令保护部分（envelopedData / encryptedData / MAC）仅结构查看，不解密。</p>
+                </div>
+
+                <!-- Section 3：GM/T 0009 加密密钥对解密（SM2 数字信封，头部两种口径自适应） -->
+                <div class="section">
+                    <h2>🗝️ GM/T 0009 加密密钥对解密</h2>
+                    <p class="tool-hint">GM/T 0009 密钥对保护格式 = SM2 数字信封：SM4 对称密钥加密 SM2 私钥，SM2 公钥加密对称密钥。头部字段存在 1B/1B/1B（布局 A）与 1B/3B/4B（布局 B）两种实现口径，本工具自适应解析（先按 A，字段越界/不合理再按 B）。</p>
+                    <div class="input-group">
+                        <label>密钥对保护数据（Hex 或 Base64）</label>
+                        <textarea id="kt-9-decrypt-input" rows="5" placeholder="粘贴 GM/T 0009 加密密钥对数据（Hex 或 Base64）..."></textarea>
+                    </div>
+                    <div class="input-group">
+                        <label>解密用 SM2 私钥</label>
+                        <div class="gm-key-row">
+                            <input type="text" id="kt-9-priv" placeholder="接收方 SM2 私钥（64 位 Hex）" autocomplete="off">
+                            <button type="button" class="btn btn-secondary" onclick="gmCopyInput('kt-9-priv')">复制</button>
+                        </div>
+                    </div>
+                    <div class="button-group">
+                        <button type="button" class="btn btn-primary" onclick="kt9Decrypt()">解密</button>
+                    </div>
+                    <div class="input-group">
+                        <label>解密结果</label>
+                        <div class="result-container">
+                            <div class="result-area" id="kt-9-result">解密后此处显示头部字段 / 对称密钥 / 解出的 SM2 私钥与 PKCS#8 PEM</div>
+                            <button class="copy-btn" onclick="copyToClipboard('kt-9-result')">复制</button>
+                        </div>
+                    </div>
+                    <p class="tool-hint">💡 SM2 密钥密文依次尝试 裸 C1C3C2 / 裸 C1C2C3 / DER（GM/T 0010 SM2Cipher）三种形态；sm-crypto 0.3.2 的 doDecrypt 只返回 UTF-8 文本，本工具生成侧按"密钥 Hex 文本"口径加密——设备若按 16 原始字节加密且非合法 UTF-8 将无法还原。EnDataUtil 口径的密钥文件（如 sm2_app.enc）请到"国密 SM2/SM4"页的"EnDataUtil 格式兼容"区解密。</p>
+                </div>
+
+                <!-- 0016/0017 说明行：智能密码钥匙设备内密钥容器暂不做互转 -->
+                <p class="tool-hint">📌 GM/T 0016/0017 密钥容器为智能密码钥匙设备内格式，各厂商实现不同、无公开统一文件格式，暂不做互转；如有厂商样例数据可反馈补录。</p>
+
+                <!-- Section 4：GM/T 0009 加密密钥对生成（生成后立即回解自测） -->
+                <div class="section">
+                    <h2>🗝️ GM/T 0009 加密密钥对生成</h2>
+                    <div class="input-group">
+                        <label>SM2 私钥（64 位 Hex）</label>
+                        <div class="gm-key-row">
+                            <input type="text" id="kt-9-gen-priv" placeholder="待保护的 SM2 私钥（64 位 Hex）" autocomplete="off">
+                            <button type="button" class="btn btn-secondary" onclick="gmCopyInput('kt-9-gen-priv')">复制</button>
+                        </div>
+                    </div>
+                    <div class="input-group">
+                        <label>SM2 公钥（130 位 04 开头）</label>
+                        <div class="gm-key-row">
+                            <input type="text" id="kt-9-gen-pub" placeholder="04 开头的未压缩公钥（130 位 Hex），用于加密对称密钥" autocomplete="off">
+                            <button type="button" class="btn btn-secondary" onclick="gmCopyInput('kt-9-gen-pub')">复制</button>
+                        </div>
+                    </div>
+                    <div class="button-group">
+                        <button type="button" class="btn btn-primary" onclick="kt9Gen()">生成 0009 密钥对</button>
+                        <button type="button" class="btn btn-secondary" onclick="kt9GenClear()">清空</button>
+                    </div>
+                    <div class="input-group">
+                        <label>生成结果</label>
+                        <div class="result-container">
+                            <div class="result-area" id="kt-9-gen-result">生成后此处显示保护数据（大写 Hex / Base64）与自测回解结果</div>
+                            <button class="copy-btn" onclick="copyToClipboard('kt-9-gen-result')">复制</button>
+                        </div>
+                    </div>
+                    <p class="tool-hint">💡 流程：随机 16 字节 SM4 密钥 → SM4-ECB/PKCS7 加密私钥 → SM2（C1C3C2）加密 SM4 密钥 → 按布局 A 组装（01 01 + 1B 密钥密文长度 + 密钥密文 + 2B 大端私钥密文长度 + 私钥密文 + 公钥 64B（剥 04））。生成后立即回解自测（与本页解密函数对拍），私钥逐字节一致。</p>
                 </div>
             </div>
 
@@ -1998,6 +2131,8 @@
     <script src="js/asn1.js"></script>
     <!-- X.509 证书查看页脚本（复用 asn1.js 的全局解析函数，必须在其后加载） -->
     <script src="js/cert.js"></script>
+    <!-- 密钥工具页脚本（私钥互转 / P12 结构 / GM/T 0009 密钥对，复用 asn1.js 与 gmsm.js 的全局函数，须在其后加载） -->
+    <script src="js/keytool.js"></script>
     <!-- OID 查询页脚本（内置 OID 库 + Hex/点分互转，自包含无依赖） -->
     <script src="js/oidtool.js"></script>
     <!-- 进制转换 / UUID 生成页脚本（自包含无依赖） -->
