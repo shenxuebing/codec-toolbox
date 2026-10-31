@@ -1716,3 +1716,90 @@ body {
 #kt-key-result {
     height: 200px;
 }
+
+/* ============================================================
+   PDF 工具页（page-pdf）
+   （复用 .section/.input-group/.button-group/.encoding-selector/
+   .file-drop-zone/.result-container 等既有类，此处仅补本页专属样式）
+   ============================================================ */
+
+/* 前 3 页缩略预览：横排 flex，每项 canvas + 页码 */
+.pdf-thumbs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    align-items: flex-start;
+    min-height: 30px;
+}
+
+.pdf-thumb-item {
+    text-align: center;
+    font-size: 12px;
+    color: #495057;
+}
+
+.pdf-thumb-item canvas {
+    display: block;
+    border: 1px solid #dee2e6;
+    border-radius: 4px;
+    background: #fff;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+    max-width: 100%;
+    height: auto;
+}
+
+.pdf-thumb-item .pdf-thumb-label {
+    margin-top: 4px;
+}
+
+/* 转图片进度文本 */
+.pdf-progress {
+    font-size: 13px;
+    color: #495057;
+    margin: 6px 0;
+    min-height: 18px;
+}
+
+/* 转图片结果：逐页"页码 + 下载"网格 */
+.pdf-img-grid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+}
+
+.pdf-img-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: #f8f9fa;
+    border: 1px solid #e9ecef;
+    border-radius: 6px;
+    padding: 4px 8px;
+    font-size: 13px;
+    color: #333;
+}
+
+.pdf-img-item .btn {
+    padding: 2px 10px;
+    font-size: 12px;
+}
+
+/* 去水印参数行：标签 + 数字输入成组排列 */
+.pdf-param-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 14px;
+    align-items: center;
+    margin: 6px 0;
+}
+
+.pdf-param-row label.param {
+    font-size: 13px;
+    color: #333;
+    white-space: nowrap;
+}
+
+.pdf-param-row input[type="number"] {
+    width: 90px;
+}

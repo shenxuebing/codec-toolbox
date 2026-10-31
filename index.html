@@ -26,6 +26,7 @@
             <button type="button" class="menu-item" data-page="page-gmsm"><span class="menu-icon">🛡️</span><span class="menu-text">国密 SM2/SM4</span></button>
             <button type="button" class="menu-item" data-page="page-hmac"><span class="menu-icon">🔏</span><span class="menu-text">HMAC 计算</span></button>
             <button type="button" class="menu-item" data-page="page-aes"><span class="menu-icon">🔐</span><span class="menu-text">AES 加解密</span></button>
+            <button type="button" class="menu-item" data-page="page-rsa"><span class="menu-icon">🔐</span><span class="menu-text">RSA 工具</span></button>
             <button type="button" class="menu-item" data-page="page-asn1"><span class="menu-icon">🧬</span><span class="menu-text">ASN.1 查看器</span></button>
             <button type="button" class="menu-item" data-page="page-cert"><span class="menu-icon">🪪</span><span class="menu-text">证书查看</span></button>
             <button type="button" class="menu-item" data-page="page-keytool"><span class="menu-icon">🗝️</span><span class="menu-text">密钥工具</span></button>
@@ -46,6 +47,7 @@
             <button type="button" class="menu-item" data-page="page-http"><span class="menu-icon">📡</span><span class="menu-text">HTTP / MIME 速查</span></button>
             <button type="button" class="menu-item" data-page="page-image"><span class="menu-icon">🖼️</span><span class="menu-text">图片 Base64</span></button>
             <button type="button" class="menu-item" data-page="page-imgcompress"><span class="menu-icon">🗜️</span><span class="menu-text">图片压缩</span></button>
+            <button type="button" class="menu-item" data-page="page-pdf"><span class="menu-icon">📕</span><span class="menu-text">PDF 工具</span></button>
             <button type="button" class="menu-item" data-page="page-age"><span class="menu-icon">🎂</span><span class="menu-text">年龄计算</span></button>
             <button type="button" class="menu-item" data-page="page-qrcode"><span class="menu-icon">📡</span><span class="menu-text">二维码工具</span></button>
             <button type="button" class="menu-item" data-page="page-github"><span class="menu-icon">🔥</span><span class="menu-text">GitHub 热榜</span></button>
@@ -805,6 +807,186 @@
                         </div>
                     </div>
                     <p class="tool-hint">💡 派生结果为 Hex 密钥并自动填入上方密钥框（同时把密钥格式切回 Hex 由你手动确认）；走浏览器 crypto.subtle 标准接口，可用 Node crypto.pbkdf2Sync(口令, 盐, 迭代, 长度, 'sha256') 对拍。</p>
+                </div>
+            </div>
+
+            <!-- RSA 工具：密钥对生成（Web Crypto）/ 加解密（OAEP + PKCS1v1_5 手写）/ 签名验签 / CSR 生成（SM2 与 RSA 双支持，依赖 asn1.js/gmsm.js/keytool.js 已先加载） -->
+            <div id="page-rsa" class="page">
+                <!-- Section 1：RSA 密钥对生成（一把密钥材料，加密/签名两份用途视图） -->
+                <div class="section">
+                    <h2>🔑 RSA 密钥对生成</h2>
+                    <div class="encoding-selector">
+                        <label style="margin-right: 12px; font-weight: bold; color: #333;">模长：</label>
+                        <label><input type="radio" name="rsa-modulus" value="2048" checked><span>2048</span></label>
+                        <label><input type="radio" name="rsa-modulus" value="3072"><span>3072</span></label>
+                        <label><input type="radio" name="rsa-modulus" value="4096"><span>4096</span></label>
+                        <label><input type="radio" name="rsa-modulus" value="1024"><span>1024（仅测试）</span></label>
+                    </div>
+                    <div class="button-group">
+                        <button type="button" class="btn btn-primary" onclick="rsaGenKey()">生成密钥对</button>
+                    </div>
+                    <div class="input-group">
+                        <label>私钥（PKCS#8 PEM，解密 / 签名用；同一把密钥材料）</label>
+                        <div class="result-container">
+                            <textarea id="rsa-gen-priv" rows="6" readonly placeholder="点击“生成密钥对”后此处显示 -----BEGIN PRIVATE KEY----- 包装的私钥"></textarea>
+                            <button type="button" class="btn btn-secondary" onclick="gmCopyInput('rsa-gen-priv')">复制私钥</button>
+                        </div>
+                    </div>
+                    <div class="input-group">
+                        <label>公钥（SPKI PEM，加密 / 验签用）</label>
+                        <div class="result-container">
+                            <textarea id="rsa-gen-pub" rows="4" readonly placeholder="点击“生成密钥对”后此处显示 -----BEGIN PUBLIC KEY----- 包装的公钥"></textarea>
+                            <button type="button" class="btn btn-secondary" onclick="gmCopyInput('rsa-gen-pub')">复制公钥</button>
+                        </div>
+                    </div>
+                    <div class="result-container">
+                        <div class="result-area gm-oneline" id="rsa-gen-info">生成后此处显示模长 / 公钥指数 e / 模数 n（截断）</div>
+                        <button class="copy-btn" onclick="copyToClipboard('rsa-gen-info')">复制</button>
+                    </div>
+                    <p class="tool-hint">💡 生成的密钥对可直接用于下方加解密与签名（密钥来源选"使用上方生成的密钥"）。Web Crypto 限制：RSA-OAEP 与 RSASSA-PKCS1-v1_5 不能在同一次 generateKey 里合并 encrypt/decrypt 与 sign/verify 用途——本工具生成一次密钥材料后按需再导入为签名用途视图，密钥材料同一把。走浏览器 crypto.subtle，需较新的 Chrome / Firefox / Edge。</p>
+                </div>
+
+                <!-- Section 2：RSA 加解密（OAEP-SHA256/SHA1 走 Web Crypto；PKCS1-v1_5 为手写 BigInt legacy 实现） -->
+                <div class="section">
+                    <h2>🔐 RSA 加解密</h2>
+                    <div class="input-group">
+                        <label>输入内容（加密时为明文文本，解密时为 Base64 密文）</label>
+                        <textarea id="rsa-enc-input" rows="6" placeholder="加密：输入明文文本（UTF-8）；解密：粘贴本页加密输出的 Base64 密文（Hex 亦可识别）"></textarea>
+                    </div>
+                    <div class="encoding-selector">
+                        <label style="margin-right: 12px; font-weight: bold; color: #333;">算法：</label>
+                        <label><input type="radio" name="rsa-enc-alg" value="oaep256" checked><span>RSA-OAEP-SHA256</span></label>
+                        <label><input type="radio" name="rsa-enc-alg" value="oaep1"><span>RSA-OAEP-SHA1</span></label>
+                        <label><input type="radio" name="rsa-enc-alg" value="pkcs1v5"><span>RSA-PKCS1-v1_5（legacy）</span></label>
+                    </div>
+                    <div class="encoding-selector">
+                        <label style="margin-right: 12px; font-weight: bold; color: #333;">密钥来源（签名区共用）：</label>
+                        <label><input type="radio" name="rsa-key-src" value="gen" checked onchange="rsaKeySrcChanged()"><span>使用上方生成的密钥</span></label>
+                        <label><input type="radio" name="rsa-key-src" value="paste" onchange="rsaKeySrcChanged()"><span>粘贴 PEM</span></label>
+                    </div>
+                    <!-- 粘贴模式下的公钥 / 私钥输入（切换"粘贴 PEM"时显示） -->
+                    <div class="input-group" id="rsa-pub-pem-row" style="display:none;">
+                        <label>公钥 PEM（加密 / 验签用）</label>
+                        <textarea id="rsa-pub-pem" rows="3" placeholder="-----BEGIN PUBLIC KEY----- 包装的公钥（Base64/Hex DER 亦可）"></textarea>
+                    </div>
+                    <div class="input-group" id="rsa-priv-pem-row" style="display:none;">
+                        <label>私钥 PEM（解密 / 签名用；PKCS#8 或 PKCS#1）</label>
+                        <textarea id="rsa-priv-pem" rows="3" placeholder="-----BEGIN PRIVATE KEY----- / -----BEGIN RSA PRIVATE KEY----- 包装的私钥"></textarea>
+                    </div>
+                    <div class="button-group">
+                        <button type="button" class="btn btn-primary" onclick="rsaEncrypt()">加密</button>
+                        <button type="button" class="btn btn-primary" onclick="rsaDecrypt()">解密</button>
+                        <button type="button" class="btn btn-secondary" onclick="rsaEncClear()">清空</button>
+                    </div>
+                    <div class="input-group">
+                        <label>结果（加密输出 Base64；解密输出明文文本）</label>
+                        <div class="result-container">
+                            <div class="result-area" id="rsa-enc-result"></div>
+                            <button class="copy-btn" onclick="copyToClipboard('rsa-enc-result')">复制</button>
+                        </div>
+                    </div>
+                    <p class="tool-hint">💡 OAEP 明文上限 = 模长字节 − 2×哈希字节 − 2（2048 位 + SHA-256 = 190 字节，SHA-1 = 214 字节）；PKCS#1 v1.5 上限 = 模长字节 − 11（2048 位 = 245 字节）。RSA-PKCS1-v1_5 已被浏览器 Web Crypto 移除，此处为手写 BigInt 实现仅作 legacy 兼容（新场景请用 OAEP）。密钥来源与下方"RSA 签名 / 验签"区共用。</p>
+                </div>
+
+                <!-- Section 3：RSA 签名 / 验签（密钥来源复用 Section 2 的单选与暂存机制） -->
+                <div class="section">
+                    <h2>✍️ RSA 签名 / 验签</h2>
+                    <div class="input-group">
+                        <label>待签 / 待验消息（文本，按 UTF-8 编码；签名用私钥、验签用公钥）</label>
+                        <textarea id="rsa-sign-input" rows="4" placeholder="输入待签名或待验签的消息文本"></textarea>
+                    </div>
+                    <div class="encoding-selector">
+                        <label style="margin-right: 12px; font-weight: bold; color: #333;">算法：</label>
+                        <label><input type="radio" name="rsa-sign-alg" value="pkcs1v5-256" checked><span>RSASSA-PKCS1-v1_5-SHA256</span></label>
+                        <label><input type="radio" name="rsa-sign-alg" value="pkcs1v5-384"><span>SHA384</span></label>
+                        <label><input type="radio" name="rsa-sign-alg" value="pkcs1v5-512"><span>SHA512</span></label>
+                        <label><input type="radio" name="rsa-sign-alg" value="pss256"><span>RSA-PSS-SHA256（salt 32）</span></label>
+                    </div>
+                    <div class="input-group">
+                        <label>签名值（Base64；点击"签名"后自动填入，验签前也可手动粘贴）</label>
+                        <div class="gm-key-row">
+                            <input type="text" id="rsa-sign-value" placeholder="Base64 签名值（Hex 亦可识别）" autocomplete="off">
+                            <button type="button" class="btn btn-secondary" onclick="gmCopyInput('rsa-sign-value')">复制</button>
+                        </div>
+                    </div>
+                    <div class="button-group">
+                        <button type="button" class="btn btn-primary" onclick="rsaSign()">签名</button>
+                        <button type="button" class="btn btn-primary" onclick="rsaVerify()">验签</button>
+                        <button type="button" class="btn btn-secondary" onclick="rsaSignClear()">清空</button>
+                    </div>
+                    <div class="input-group">
+                        <label>结果</label>
+                        <div class="result-container">
+                            <div class="result-area gm-oneline" id="rsa-sign-result"></div>
+                            <button class="copy-btn" onclick="copyToClipboard('rsa-sign-result')">复制</button>
+                        </div>
+                    </div>
+                    <p class="tool-hint">💡 密钥来源沿用上方"RSA 加解密"区的单选（使用上方生成的密钥 / 粘贴 PEM）；RSA-PSS 的 saltLength 固定 32 字节。签名值与 OpenSSL / Node crypto 的输出形态一致（PKCS#1 v1.5 与 PSS 均为标准编码）。</p>
+                </div>
+
+                <!-- Section 4：CSR 生成（PKCS#10，手写 DER 组装；SM2 走 sm-crypto、RSA 走 Web Crypto） -->
+                <div class="section">
+                    <h2>📜 CSR 生成（PKCS#10）</h2>
+                    <div class="input-group">
+                        <label>DN 主体信息（C 限 2 字母 PrintableString；CN/O/OU 为 UTF8String；E 为 IA5String）</label>
+                        <div class="gm-key-row radix-out-row">
+                            <span class="radix-row-label">CN 通用名</span>
+                            <input type="text" id="csr-cn" placeholder="必填，如 example.com / 张三" autocomplete="off">
+                        </div>
+                        <div class="gm-key-row radix-out-row">
+                            <span class="radix-row-label">O 组织</span>
+                            <input type="text" id="csr-o" placeholder="可选，如 示例科技有限公司" autocomplete="off">
+                        </div>
+                        <div class="gm-key-row radix-out-row">
+                            <span class="radix-row-label">OU 部门</span>
+                            <input type="text" id="csr-ou" placeholder="可选，如 研发部" autocomplete="off">
+                        </div>
+                        <div class="gm-key-row radix-out-row">
+                            <span class="radix-row-label">C 国家</span>
+                            <input type="text" id="csr-c" value="CN" placeholder="2 字母（ISO 3166-1），如 CN" autocomplete="off">
+                        </div>
+                        <div class="gm-key-row radix-out-row">
+                            <span class="radix-row-label">E 邮箱</span>
+                            <input type="text" id="csr-e" placeholder="可选，如 admin@example.com" autocomplete="off">
+                        </div>
+                    </div>
+                    <div class="encoding-selector">
+                        <label style="margin-right: 12px; font-weight: bold; color: #333;">密钥来源：</label>
+                        <label><input type="radio" name="csr-key-src" value="sm2" checked onchange="csrKeySrcChanged()"><span>生成新 SM2 密钥对</span></label>
+                        <label><input type="radio" name="csr-key-src" value="rsa" onchange="csrKeySrcChanged()"><span>生成新 RSA-2048</span></label>
+                        <label><input type="radio" name="csr-key-src" value="paste" onchange="csrKeySrcChanged()"><span>粘贴 PKCS#8 私钥</span></label>
+                    </div>
+                    <!-- 粘贴模式下的私钥输入（切换"粘贴 PKCS#8 私钥"时显示） -->
+                    <div class="input-group" id="csr-priv-pem-row" style="display:none;">
+                        <label>私钥 PEM（SM2 或 RSA 自动识别；SM2 公钥由私钥推导）</label>
+                        <textarea id="csr-priv-pem" rows="4" placeholder="-----BEGIN PRIVATE KEY----- 包装的 PKCS#8 私钥（SM2 / RSA），RSA 的 PKCS#1 形态亦可"></textarea>
+                    </div>
+                    <div class="button-group">
+                        <button type="button" class="btn btn-primary" onclick="csrGen()">生成 CSR</button>
+                        <button type="button" class="btn btn-secondary" onclick="csrClear()">清空</button>
+                    </div>
+                    <div class="input-group">
+                        <label>CSR（PEM，可直接提交 CA 或 openssl req -verify 校验）</label>
+                        <div class="result-container">
+                            <textarea id="csr-result" rows="8" readonly placeholder="点击“生成 CSR”后此处显示 -----BEGIN CERTIFICATE REQUEST----- 包装的 CSR"></textarea>
+                            <button type="button" class="btn btn-secondary" onclick="gmCopyInput('csr-result')">复制 CSR</button>
+                        </div>
+                    </div>
+                    <div class="input-group">
+                        <label>配套私钥（PEM，仅"生成新密钥对"来源时输出，请妥善保存）</label>
+                        <div class="result-container">
+                            <textarea id="csr-key-result" rows="4" readonly placeholder="SM2 为国产 PKCS#8 形态（含曲线与公钥），RSA 为标准 PKCS#8"></textarea>
+                            <button type="button" class="btn btn-secondary" onclick="gmCopyInput('csr-key-result')">复制私钥</button>
+                        </div>
+                    </div>
+                    <div class="input-group">
+                        <label>结构自检（asn1ParseTlv 整体解析 + DN 明细）</label>
+                        <div class="result-container">
+                            <div class="result-area" id="csr-check-result">生成后此处显示 CSR 的四行结构自检与 DN 编码明细</div>
+                            <button class="copy-btn" onclick="copyToClipboard('csr-check-result')">复制</button>
+                        </div>
+                    </div>
+                    <p class="tool-hint">💡 结构：CertificationRequest = SEQ{ CRI{ INTEGER 0, DN, SPKI, [0]空属性 }, 签名算法, BIT STRING 签名 }。SM2 的 SPKI 采用 ecPublicKey + SM2 曲线双 OID 标准形态（GmSSL 兼容），签名算法 OID 1.2.156.10197.1.501（SM2Sign-with-SM3，UserId 为国标默认 1234567812345678，验签方需同口径）；RSA 固定 sha256WithRSAEncryption。SM2 签名对 CRI 的 DER 原字节计算（sm-crypto 数组口径，规避字符串按 UTF-8 二次编码的坑点），并自带回验自检。</p>
                 </div>
             </div>
 
@@ -1997,6 +2179,147 @@
                 </div>
             </div>
 
+            <!-- PDF 工具：pdfjs（解析/渲染/文本）+ pdf-lib（页面编辑）+ fflate（ZIP）三个本地化库；
+                 6 个 Section 共享第 1 节选中的同一个文件（字节暂存于 js/pdftool.js 的 PDF_STATE） -->
+            <div id="page-pdf" class="page">
+
+                <!-- Section 1：文件选择（全页共享）+ 信息与缩略预览 -->
+                <div class="section">
+                    <h2>📕 PDF 信息与预览</h2>
+                    <div class="input-group">
+                        <label>选择 PDF 文件（本页各功能共用，最大 50MB）</label>
+                        <!-- 拖拽/点击二合一的文件选择区：隐藏的 input 实际负责弹出文件选择框 -->
+                        <div id="pdf-drop" class="file-drop-zone">
+                            拖拽 PDF 到此处，或点击选择文件
+                            <input type="file" id="pdf-file" accept=".pdf" style="display:none;">
+                        </div>
+                        <!-- 解析信息（页数/加密/元数据/首页尺寸），由 JS 用 textContent 填充 -->
+                        <div id="pdf-info" style="font-size:12px;color:#495057;background:#f8f9fa;border:1px solid #e9ecef;border-radius:6px;padding:8px 12px;word-break:break-all;line-height:1.6;white-space:pre-wrap;">选择文件后此处显示页数、元数据与首页尺寸</div>
+                    </div>
+                    <div class="input-group">
+                        <label>前 3 页缩略预览</label>
+                        <!-- 每页一个 canvas + 页码（样式见 css/style.css 的 .pdf-thumbs） -->
+                        <div id="pdf-thumbs" class="pdf-thumbs"></div>
+                    </div>
+                    <p class="tool-hint">💡 全程浏览器本地处理，不上传任何数据；加密口令 PDF 暂不支持（会明确提示）。</p>
+                </div>
+
+                <!-- Section 2：PDF 转图片（pdfjs 逐页 render + fflate 打包） -->
+                <div class="section">
+                    <h2>🖼️ PDF 转图片</h2>
+                    <div class="input-group">
+                        <label>页范围</label>
+                        <input type="text" id="pdf2img-range" placeholder="如 1-3,5（留空 = 全部页；单次上限 50 页）">
+                    </div>
+                    <div class="encoding-selector">
+                        <label style="margin-right: 20px; font-weight: bold; color: #333;">分辨率：</label>
+                        <label><input type="radio" name="pdf2img-dpi" value="96" checked><span>96 DPI</span></label>
+                        <label><input type="radio" name="pdf2img-dpi" value="150"><span>150 DPI</span></label>
+                        <label><input type="radio" name="pdf2img-dpi" value="300"><span>300 DPI</span></label>
+                    </div>
+                    <div class="encoding-selector">
+                        <label style="margin-right: 20px; font-weight: bold; color: #333;">格式：</label>
+                        <label><input type="radio" name="pdf2img-format" value="image/jpeg" checked><span>JPEG</span></label>
+                        <label><input type="radio" name="pdf2img-format" value="image/png"><span>PNG（无损）</span></label>
+                    </div>
+                    <div class="button-group">
+                        <button type="button" class="btn btn-primary" onclick="pdf2imgRun()">转图片</button>
+                        <button type="button" class="btn btn-secondary" onclick="pdf2imgDownloadZip()">打包下载 ZIP</button>
+                    </div>
+                    <!-- 进度文本：第 N/M 页（由 JS 更新） -->
+                    <div id="pdf2img-progress" class="pdf-progress"></div>
+                    <div class="input-group">
+                        <label>转换结果（逐页下载）</label>
+                        <div id="pdf2img-result" class="pdf-img-grid">每页转换完成后此处显示逐页下载按钮</div>
+                    </div>
+                </div>
+
+                <!-- Section 3：PDF 提取文本（pdfjs getTextContent，逐页拼接） -->
+                <div class="section">
+                    <h2>📝 PDF 提取文本</h2>
+                    <div class="button-group">
+                        <button type="button" class="btn btn-primary" onclick="pdfTextRun()">提取文本</button>
+                        <button type="button" class="btn btn-secondary" onclick="pdfTextDownload()">下载 .txt</button>
+                        <button type="button" class="btn btn-secondary" onclick="pdfTextToWord()">导出 Word（.doc）</button>
+                    </div>
+                    <div class="input-group">
+                        <label>提取结果（按页拼接）</label>
+                        <div class="result-container">
+                            <div class="result-area" id="pdf-text-result"></div>
+                            <button class="copy-btn" onclick="copyToClipboard('pdf-text-result')">复制</button>
+                        </div>
+                    </div>
+                    <p class="tool-hint">💡 扫描版 PDF 无文字层，提取结果为空；"导出 Word"是 HTML 包装的伪 .doc（Word/WPS 可直接打开编辑），并非真正的 OOXML 格式，仅作轻量导出通道。</p>
+                </div>
+
+                <!-- Section 4：PDF 页面操作（pdf-lib：旋转/删页/提取/倒序） -->
+                <div class="section">
+                    <h2>📄 PDF 页面操作</h2>
+                    <div class="encoding-selector">
+                        <label style="margin-right: 20px; font-weight: bold; color: #333;">操作：</label>
+                        <label><input type="radio" name="pdfpage-op" value="rotate90" checked><span>旋转 90°（全部页）</span></label>
+                        <label><input type="radio" name="pdfpage-op" value="rotate180"><span>旋转 180°</span></label>
+                        <label><input type="radio" name="pdfpage-op" value="rotate270"><span>旋转 270°</span></label>
+                        <label><input type="radio" name="pdfpage-op" value="remove"><span>删除指定页</span></label>
+                        <label><input type="radio" name="pdfpage-op" value="extract"><span>提取指定页</span></label>
+                        <label><input type="radio" name="pdfpage-op" value="reverse"><span>全部页倒序</span></label>
+                    </div>
+                    <div class="input-group">
+                        <label>页范围（仅"删除指定页 / 提取指定页"使用，如 1-3,5）</label>
+                        <input type="text" id="pdfpage-range" placeholder="如 1-3,5">
+                    </div>
+                    <div class="button-group">
+                        <button type="button" class="btn btn-primary" onclick="pdfPageRun()">执行并下载</button>
+                    </div>
+                    <p class="tool-hint">💡 基于第 1 节选择的文件操作，每次执行都从原文件重新生成（不会叠加之前的操作）；旋转在原角度基础上累加；删除后至少保留 1 页。</p>
+                </div>
+
+                <!-- Section 5：PDF 合并 / 拆分（pdf-lib copyPages + fflate 打包） -->
+                <div class="section">
+                    <h2>📑 PDF 合并 / 拆分</h2>
+                    <div class="input-group">
+                        <label>合并多个 PDF（按选择顺序并入，各文件最大 50MB）</label>
+                        <input type="file" id="pdfmerge-files" multiple accept=".pdf">
+                    </div>
+                    <div class="button-group">
+                        <button type="button" class="btn btn-primary" onclick="pdfMergeRun()">合并并下载 merged.pdf</button>
+                        <button type="button" class="btn btn-secondary" onclick="pdfSplitEach()">每页拆分为单独 PDF（ZIP）</button>
+                    </div>
+                    <p class="tool-hint">💡 合并不依赖第 1 节选择的文件；"每页拆分"则基于第 1 节选择的文件，把每一页导出为独立的单页 PDF 并打包。</p>
+                </div>
+
+                <!-- Section 6：去水印（安全途径：裁剪页边 / 盖白矩形，均基于 pdf-lib） -->
+                <div class="section">
+                    <h2>🧽 去水印（安全途径）</h2>
+                    <p class="tool-hint">⚠️ 浏览器端无法去除 PDF 内容流中的文字/图片水印，本工具只提供两种<b>安全遮蔽</b>途径：① 裁剪页边——对固定在页边的水印有效；② 盖白矩形——对固定矩形区域的水印有效。<b>局限：</b>盖白矩形只能盖住绘制次序在其之前的内容，若矩形区域上层还有正文，正文会被一并遮挡；裁剪只是视觉裁剪（CropBox），原始内容字节仍保留在文件中。坐标均为 pt（1 pt = 1/72 英寸），原点在页面左下角，不随页面旋转交换。</p>
+                    <div class="input-group">
+                        <label>① 裁剪页边（单位 pt，四边默认 0 = 不裁）</label>
+                        <div class="pdf-param-row">
+                            <label class="param">上</label><input type="number" id="pdfcrop-t" value="0" min="0" step="1">
+                            <label class="param">下</label><input type="number" id="pdfcrop-b" value="0" min="0" step="1">
+                            <label class="param">左</label><input type="number" id="pdfcrop-l" value="0" min="0" step="1">
+                            <label class="param">右</label><input type="number" id="pdfcrop-r" value="0" min="0" step="1">
+                            <button type="button" class="btn btn-primary" onclick="pdfCropRun()">裁剪并下载</button>
+                        </div>
+                    </div>
+                    <div class="input-group">
+                        <label>② 盖白矩形（单位 pt，坐标原点在页面左下角）</label>
+                        <div class="pdf-param-row">
+                            <label class="param">X</label><input type="number" id="pdfcover-x" value="0" step="1">
+                            <label class="param">Y</label><input type="number" id="pdfcover-y" value="0" step="1">
+                            <label class="param">宽</label><input type="number" id="pdfcover-w" value="100" min="1" step="1">
+                            <label class="param">高</label><input type="number" id="pdfcover-h" value="20" min="1" step="1">
+                        </div>
+                        <div class="pdf-param-row">
+                            <label class="param">页范围</label>
+                            <input type="text" id="pdfcover-range" placeholder="如 1-3,5（留空 = 全部页）" style="width:180px;">
+                            <button type="button" class="btn btn-primary" onclick="pdfCoverRun()">盖白并下载</button>
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+
             <!-- 年龄计算：周岁（日历借位）/ 总生存 / 下次生日 / 生肖 / 星座 -->
             <div id="page-age" class="page">
                 <div class="section">
@@ -2173,6 +2496,8 @@
     <script src="js/cert.js"></script>
     <!-- 密钥工具页脚本（私钥互转 / P12 结构 / GM/T 0009 密钥对，复用 asn1.js 与 gmsm.js 的全局函数，须在其后加载） -->
     <script src="js/keytool.js"></script>
+    <!-- RSA 工具页脚本（密钥生成 / 加解密 / 签名 / CSR 生成，依赖 asn1.js / gmsm.js / keytool.js 已先加载） -->
+    <script src="js/rsatool.js"></script>
     <!-- OID 查询页脚本（内置 OID 库 + Hex/点分互转，自包含无依赖） -->
     <script src="js/oidtool.js"></script>
     <!-- 进制转换 / UUID 生成页脚本（自包含无依赖） -->
@@ -2200,5 +2525,13 @@
     <!-- SQL 格式化页：第三方库 sql-formatter 15.4.5（本地化，全局暴露 sqlFormatter）必须先于页面脚本加载 -->
     <script src="js/vendor/sql-formatter.min.js"></script>
     <script src="js/sql.js"></script>
+    <!-- PDF 工具页第三方库（均本地化）：pdf.js 3.11.174（UMD 全局 pdfjsLib；其 worker 文件
+         pdfjs-worker.min.js 不用 script 引入，由 pdftool.js 设置 workerSrc 相对路径指向）、
+         pdf-lib（全局 PDFLib）、fflate（全局 fflate，ZIP 打包）必须先于页面脚本加载 -->
+    <script src="js/vendor/pdfjs.min.js"></script>
+    <script src="js/vendor/pdf-lib.min.js"></script>
+    <script src="js/vendor/fflate.umd.js"></script>
+    <!-- PDF 工具页脚本（信息预览/转图片/提取文本/页面操作/合并拆分/去水印） -->
+    <script src="js/pdftool.js"></script>
 </body>
 </html>

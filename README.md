@@ -1,6 +1,6 @@
 # 增强版多功能编解码工具箱
 
-浏览器离线编解码/密码学辅助工具箱，左侧菜单栏 + 右侧内容区布局，共 35 个功能页面。双击 `index.html` 即可使用，除 GitHub 热榜外全部功能无需联网。
+浏览器离线编解码/密码学辅助工具箱，左侧菜单栏 + 右侧内容区布局，共 37 个功能页面。双击 `index.html` 即可使用，除 GitHub 热榜外全部功能无需联网。
 
 （功能分类：编码转换类 → 哈希/密码类 → 文本/开发类 → 生活/资讯类，共 25 页）
 
@@ -146,6 +146,20 @@
 - ECB/CBC 模式 × PKCS7/无填充，密钥 128/192/256 位（Hex 或文本输入，随机生成）
 - 输入文本/Hex/Base64，输出 Base64/Hex；与 Node crypto 逐字节对拍一致
 - PBKDF2-SHA256 口令派生密钥（自定义盐与迭代次数，Web Crypto）
+
+### 🔐 RSA 工具
+- 密钥对生成（2048/3072/4096/1024，加密用途与签名用途各一份 PKCS#8）
+- 加解密：RSA-OAEP-SHA256/SHA1（含手写 PKCS1v1.5 大数实现）；与 Node crypto 双向交叉对拍一致
+- 签名验签：RSASSA-PKCS1-v1_5（SHA256/384/512）、RSA-PSS（salt=32）
+- **CSR 生成（PKCS#10）**：SM2（ecPublicKey+SM2 曲线双 OID 标准形态，openssl 可解析识别 SM2-with-SM3）与 RSA-2048（openssl req -verify 验签通过）；DN 类型规范（CN/OU/O=UTF8String、C=PrintableString、E=IA5String），附对应私钥 PEM
+
+### 📕 PDF 工具
+- 信息与预览：页数/加密状态/元数据/页尺寸 + 前 3 页缩略图（pdf.js 本地化 + worker）
+- **转图片**：页范围（1-3,5 语法）/DPI 96·150·300/JPEG·PNG，单页下载或 ZIP 打包（fflate）
+- **提取文本**：分页标注导出 .txt / 伪 .doc（HTML 包装，Word 可开）
+- **页面操作**：全页旋转 90/180/270、删除指定页、提取指定页为新 PDF、倒序（pdf-lib）
+- **合并/拆分**：多 PDF 顺序合并；每页拆分为单页 PDF ZIP 包
+- **去水印（安全途径）**：页边裁剪（CropBox）与白色矩形覆盖两法，页面诚实标注局限（内容流水印浏览器端不可去除）
 
 ### 🛡️ 国密 SM2/SM4
 - SM4 加解密：ECB/CBC × PKCS7/无填充，输入支持文本(UTF-8)/Hex/Base64，输出 Hex/Base64，随机密钥/IV 生成
