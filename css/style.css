@@ -1803,3 +1803,123 @@ body {
 .pdf-param-row input[type="number"] {
     width: 90px;
 }
+
+/* ============================================================
+   文档扫描页（page-scan）—— 角点拖拽预览
+   ============================================================ */
+
+/* 预览容器：包住画布与 4 个角点（inline-block 收缩到画布尺寸；
+   角点以百分比定位，画布随窗口缩放时角点自动跟随，无需 JS 重排） */
+.scan-preview-wrap {
+    position: relative;
+    display: inline-block;
+    max-width: 100%;
+    line-height: 0; /* 消除 inline-block 基线与画布底部之间的空隙 */
+}
+
+.scan-preview-wrap canvas {
+    display: block;
+    max-width: 100%;
+    height: auto; /* 只限宽时保持纵横比 */
+    border: 1px solid #e9ecef;
+    border-radius: 4px;
+    cursor: crosshair;
+}
+
+/* 可拖拽角点：10px 圆点、主题色边框、白底 */
+.scan-corner {
+    position: absolute;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: #ffffff;
+    border: 2px solid #667eea;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
+    transform: translate(-50%, -50%);
+    cursor: move;
+    z-index: 5;
+    -webkit-user-select: none;
+    user-select: none;
+    touch-action: none; /* 触屏拖角点时不触发页面滚动 */
+}
+
+/* 透明热区：视觉 10px 太小难点中，::after 扩到 26px 命中区且不影响布局 */
+.scan-corner::after {
+    content: '';
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: 26px;
+    height: 26px;
+    transform: translate(-50%, -50%);
+}
+
+/* 拖拽中的角点反色高亮 */
+.scan-corner.active {
+    background: #667eea;
+}
+
+/* ============================================================
+   PDF 工具页 Section 7：图片转 PDF（其余复用 .section/.input-group/
+   .file-drop-zone/.encoding-selector/.button-group/.result-area 等既有类）
+   ============================================================ */
+
+/* 小节标题（h3）：沿用 .section h2 的视觉（略小一档），不与既有 h2 规则冲突 */
+h3.pdfimg-title {
+    color: #495057;
+    margin-bottom: 12px;
+    font-size: 1.15em;
+    border-bottom: 2px solid #667eea;
+    padding-bottom: 6px;
+}
+
+/* 已选图片行：缩略图 + 名称/大小 + 上移/下移/移除 */
+.pdfimg-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    background: #f8f9fa;
+    border: 1px solid #e9ecef;
+    border-radius: 6px;
+    padding: 6px 10px;
+    margin: 6px 0;
+    font-size: 13px;
+    color: #333;
+}
+
+/* 缩略图：固定 40px 高、宽度等比（超宽图封顶 72px 居中裁显示） */
+.pdfimg-row img {
+    height: 40px;
+    width: auto;
+    max-width: 72px;
+    object-fit: contain;
+    border: 1px solid #e9ecef;
+    border-radius: 4px;
+    background: #fff;
+    flex: none;
+}
+
+/* 名称 + 大小：占满剩余宽度，超长省略（全名看 title 悬停） */
+.pdfimg-meta {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* 行内小按钮（↑ ↓ ✕）：与 .pdf-img-item .btn 同规格 */
+.pdfimg-row .btn {
+    padding: 2px 10px;
+    font-size: 12px;
+    flex: none;
+}
+
+/* 边距数字输入（位于 encoding-selector 行内） */
+#page-pdf .encoding-selector input[type="number"] {
+    width: 76px;
+    padding: 4px 6px;
+    border: 1px solid #e9ecef;
+    border-radius: 4px;
+    font-size: 0.9em;
+}

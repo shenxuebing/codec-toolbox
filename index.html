@@ -47,6 +47,7 @@
             <button type="button" class="menu-item" data-page="page-http"><span class="menu-icon">📡</span><span class="menu-text">HTTP / MIME 速查</span></button>
             <button type="button" class="menu-item" data-page="page-image"><span class="menu-icon">🖼️</span><span class="menu-text">图片 Base64</span></button>
             <button type="button" class="menu-item" data-page="page-imgcompress"><span class="menu-icon">🗜️</span><span class="menu-text">图片压缩</span></button>
+            <button type="button" class="menu-item" data-page="page-scan"><span class="menu-icon">📄</span><span class="menu-text">文档扫描</span></button>
             <button type="button" class="menu-item" data-page="page-pdf"><span class="menu-icon">📕</span><span class="menu-text">PDF 工具</span></button>
             <button type="button" class="menu-item" data-page="page-age"><span class="menu-icon">🎂</span><span class="menu-text">年龄计算</span></button>
             <button type="button" class="menu-item" data-page="page-qrcode"><span class="menu-icon">📡</span><span class="menu-text">二维码工具</span></button>
@@ -2179,6 +2180,61 @@
                 </div>
             </div>
 
+            <!-- 文档扫描：仿手机"文档扫描"——投影法自动检测文档边界（自适应白底/黑底）+
+                 角点透视矫正（自实现高斯消元求单应矩阵）+ 白底拉伸/二值化增强，canvas 本地完成 -->
+            <div id="page-scan" class="page">
+                <div class="section">
+                    <h2>📄 文档扫描（裁边 / 矫正 / 增强）</h2>
+                    <div class="input-group">
+                        <label>选择图片</label>
+                        <!-- 拖拽/点击二合一的图片选择区：隐藏的 input 实际负责弹出文件选择框 -->
+                        <div id="scan-drop" class="file-drop-zone">
+                            拖拽图片到此处，或点击选择图片
+                            <input type="file" id="scan-file" accept="image/*" style="display:none;">
+                        </div>
+                    </div>
+                    <div class="input-group">
+                        <label>角点调整（拖动四个圆点框选文档边界，选择图片后自动检测）</label>
+                        <!-- 预览容器：canvas 按工作分辨率显示原图（CSS 缩放适配宽度），
+                             4 个可拖拽角点以百分比定位叠加其上（角点坐标换算：显示坐标 × naturalWidth/clientWidth） -->
+                        <div id="scan-preview-wrap" class="scan-preview-wrap" style="display:none;">
+                            <canvas id="scan-canvas"></canvas>
+                            <div class="scan-corner" data-corner="tl" title="左上角"></div>
+                            <div class="scan-corner" data-corner="tr" title="右上角"></div>
+                            <div class="scan-corner" data-corner="br" title="右下角"></div>
+                            <div class="scan-corner" data-corner="bl" title="左下角"></div>
+                        </div>
+                    </div>
+                    <div class="button-group">
+                        <button type="button" class="btn btn-primary" onclick="scanAutoDetect()">自动检测边界</button>
+                        <button type="button" class="btn btn-secondary" onclick="scanResetCorners()">重置角点</button>
+                    </div>
+                    <div class="encoding-selector">
+                        <label style="margin-right: 20px; font-weight: bold; color: #333;">扫描增强：</label>
+                        <label><input type="radio" name="scan-enhance" value="none" checked><span>原图（不增强）</span></label>
+                        <label><input type="radio" name="scan-enhance" value="auto"><span>自动增强（白底拉伸）</span></label>
+                        <label><input type="radio" name="scan-enhance" value="bw"><span>黑白文档（二值化）</span></label>
+                    </div>
+                    <div class="encoding-selector">
+                        <label style="margin-right: 20px; font-weight: bold; color: #333;">输出格式：</label>
+                        <label><input type="radio" name="scan-out-format" value="image/jpeg" checked><span>JPEG</span></label>
+                        <label><input type="radio" name="scan-out-format" value="image/png"><span>PNG</span></label>
+                    </div>
+                    <div class="button-group">
+                        <button type="button" class="btn btn-primary" onclick="scanApply()">矫正并生成</button>
+                    </div>
+                    <div class="input-group">
+                        <label>扫描结果</label>
+                        <img id="scan-result-img" alt="扫描结果预览" style="max-width:100%;max-height:420px;display:none;">
+                        <div id="scan-result-info" class="result-area gm-oneline">点击"矫正并生成"后此处显示输出尺寸与大小</div>
+                    </div>
+                    <div class="button-group">
+                        <button type="button" class="btn btn-secondary" onclick="scanDownload()">下载</button>
+                    </div>
+                    <p class="tool-hint">💡 自动检测 = Otsu 二值化 + 行列投影法（自适应"白底暗文档 / 黑底亮文档"场景）；矫正 = 单应变换逆映射 + 双线性插值（高斯消元自实现，零依赖）；增强"自动"按 2%~98% 百分位拉伸白底但保留彩色，"黑白"为 Otsu 二值化。长边超 4000px 的大图先等比缩至 2000px 处理，全程不上传。</p>
+                </div>
+            </div>
+
             <!-- PDF 工具：pdfjs（解析/渲染/文本）+ pdf-lib（页面编辑）+ fflate（ZIP）三个本地化库；
                  6 个 Section 共享第 1 节选中的同一个文件（字节暂存于 js/pdftool.js 的 PDF_STATE） -->
             <div id="page-pdf" class="page">
@@ -2316,6 +2372,37 @@
                             <button type="button" class="btn btn-primary" onclick="pdfCoverRun()">盖白并下载</button>
                         </div>
                     </div>
+                </div>
+
+                <!-- Section 7：图片转 PDF（pdf-lib：JPEG/PNG 原字节直嵌，其余格式 canvas 归一化为 PNG） -->
+                <div class="section">
+                    <h3 class="pdfimg-title">🖼️ 图片转 PDF</h3>
+                    <div class="input-group">
+                        <label>选择图片（可多选、可分批追加；列表顺序即页序，每张图一页）</label>
+                        <!-- 拖拽/点击二合一的多选图片区：隐藏 input 实际负责弹出文件选择框（写法同第 1 节，multiple） -->
+                        <div id="pdfimg-drop" class="file-drop-zone">
+                            拖拽图片到此处，或点击选择文件（支持多选、分批追加）
+                            <input type="file" id="pdfimg-files" multiple accept="image/*" style="display:none;">
+                        </div>
+                        <!-- 已选图片列表：每行 = 缩略图 + 序号/名称/大小 + 上移/下移/移除（由 JS 用 DOM API 渲染，样式见 .pdfimg-row） -->
+                        <div id="pdfimg-list"></div>
+                    </div>
+                    <div class="encoding-selector">
+                        <label style="margin-right: 20px; font-weight: bold; color: #333;">页面尺寸：</label>
+                        <label><input type="radio" name="pdfimg-pagesize" value="fit" checked><span>按图片尺寸</span></label>
+                        <label><input type="radio" name="pdfimg-pagesize" value="a4"><span>A4 纵向居中</span></label>
+                        <!-- 边距仅 A4 模式生效（按图片尺寸模式页面即图片本身，无边距概念） -->
+                        <label style="margin-left: 20px; font-weight: bold; color: #333;">边距：
+                            <input type="number" id="pdfimg-margin" value="0" min="0" max="100" step="1"> pt
+                        </label>
+                    </div>
+                    <div class="button-group">
+                        <button type="button" class="btn btn-primary" onclick="pdfImgToPdf()">生成 PDF</button>
+                        <button type="button" class="btn btn-secondary" onclick="pdfImgClear()">清空列表</button>
+                    </div>
+                    <!-- 结果统计行：N 张图片 → X 页 PDF，大小 Y（由 JS textContent 填充） -->
+                    <div id="pdfimg-result" class="result-area gm-oneline">选择图片并点击"生成 PDF"后此处显示结果</div>
+                    <p class="tool-hint">💡 JPEG/PNG 按原字节直接嵌入（无重编码损耗）；BMP/GIF/WebP 等其他格式经浏览器 canvas 重绘归一为 PNG 后嵌入（GIF 只取首帧）。EXIF 旋转方向不做矫正，以浏览器渲染方向为准。"按图片尺寸"模式下页面大小 = 图片像素尺寸（1px = 1pt）；边距仅 A4 模式生效。</p>
                 </div>
 
             </div>
@@ -2522,6 +2609,8 @@
     <script src="js/textkit.js"></script>
     <!-- 图片压缩页脚本（canvas 离屏重绘，自包含无依赖） -->
     <script src="js/imgcompress.js"></script>
+    <!-- 文档扫描页脚本（投影法自动裁边 + 单应透视矫正 + 扫描增强，自包含无依赖） -->
+    <script src="js/scan.js"></script>
     <!-- SQL 格式化页：第三方库 sql-formatter 15.4.5（本地化，全局暴露 sqlFormatter）必须先于页面脚本加载 -->
     <script src="js/vendor/sql-formatter.min.js"></script>
     <script src="js/sql.js"></script>

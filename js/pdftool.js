@@ -789,3 +789,270 @@ if (typeof module !== 'undefined' && module.exports) {
         pdfMergeBytes: pdfMergeBytes
     };
 }
+
+// ---------------- Section 7：图片转 PDF（追加于上述既有代码之后，不改任何旧逻辑） ----------------
+// 多张图片按列表顺序逐张成页合入一个新 PDF 文档（pdf-lib embedJpg/embedPng）。
+// 本节全部逻辑依赖 DOM/Image/canvas（无纯函数可拆），与第 1 节共享文件无关（独立列表独立状态）。
+
+// 已选图片列表（数组顺序即页序）：{ file: File, url: 缩略图 objectURL, type: MIME, name: 文件名 }
+// url 在移除单项 / 清空列表时须 URL.revokeObjectURL 释放
+var PDF_IMG_FILES = [];
+
+// 追加图片到列表（不清空已有，支持分批添加）：
+// 过滤非图片（MIME 非 image/* 的跳过；MIME 为空的宽容放行，交给后续魔数分型/解码阶段报错）
+function pdfImgAddFiles(fileList) {
+    var files = fileList && fileList.length ? Array.prototype.slice.call(fileList) : [];
+    var added = 0, skipped = 0;
+    files.forEach(function (f) {
+        if (f.type && f.type.indexOf('image/') !== 0) { skipped++; return; }
+        if (f.size > PDF_MAX_SIZE) {
+            showNotification('已跳过 ' + f.name + '：超过 50MB 上限');
+            return;
+        }
+        // 缩略图 objectURL：列表展示与后续 canvas 重绘共用同一 URL，避免重复创建
+        PDF_IMG_FILES.push({ file: f, url: URL.createObjectURL(f), type: f.type || '', name: f.name || 'image' });
+        added++;
+    });
+    if (skipped > 0) showNotification('已跳过 ' + skipped + ' 个非图片文件');
+    if (added > 0) showNotification('已添加 ' + added + ' 张图片（当前共 ' + PDF_IMG_FILES.length + ' 张）');
+    pdfImgRenderList();
+}
+
+// 渲染已选列表：每行 = 缩略图(40px 高) + 序号/名称/大小 + 上移/下移/移除（DOM API 构建，不拼 HTML）
+function pdfImgRenderList() {
+    var box = document.getElementById('pdfimg-list');
+    if (!box) return;
+    box.innerHTML = '';
+    if (PDF_IMG_FILES.length === 0) {
+        box.textContent = '（尚未选择图片，可点击上方选区或拖拽分批添加）';
+        box.style.cssText = 'font-size:12px;color:#6c757d;padding:4px 0;';
+        return;
+    }
+    box.style.cssText = '';
+    PDF_IMG_FILES.forEach(function (item, idx) {
+        var row = document.createElement('div');
+        row.className = 'pdfimg-row';
+
+        // 缩略图：直接引用 item.url（objectURL），高度由 CSS 固定 40px、宽度等比
+        var thumb = document.createElement('img');
+        thumb.src = item.url;
+        thumb.alt = item.name;
+
+        // 名称 + 大小（flex:1 占满剩余宽度，超长省略）
+        var meta = document.createElement('span');
+        meta.className = 'pdfimg-meta';
+        meta.textContent = (idx + 1) + '. ' + item.name + '（' + formatFileSize(item.file.size) + '）';
+        meta.title = item.name; // 悬停看全名
+
+        // 上移/下移：交换数组相邻元素后整体重渲染（首位/末位禁用）
+        var up = document.createElement('button');
+        up.type = 'button';
+        up.className = 'btn btn-secondary';
+        up.textContent = '↑';
+        up.title = '上移（提前一页）';
+        if (idx === 0) up.disabled = true;
+        up.addEventListener('click', function () {
+            var t = PDF_IMG_FILES[idx - 1];
+            PDF_IMG_FILES[idx - 1] = PDF_IMG_FILES[idx];
+            PDF_IMG_FILES[idx] = t;
+            pdfImgRenderList();
+        });
+
+        var down = document.createElement('button');
+        down.type = 'button';
+        down.className = 'btn btn-secondary';
+        down.textContent = '↓';
+        down.title = '下移（推后一页）';
+        if (idx === PDF_IMG_FILES.length - 1) down.disabled = true;
+        down.addEventListener('click', function () {
+            var t = PDF_IMG_FILES[idx + 1];
+            PDF_IMG_FILES[idx + 1] = PDF_IMG_FILES[idx];
+            PDF_IMG_FILES[idx] = t;
+            pdfImgRenderList();
+        });
+
+        // 移除：释放该行 objectURL 后从数组删除
+        var del = document.createElement('button');
+        del.type = 'button';
+        del.className = 'btn btn-secondary';
+        del.textContent = '✕';
+        del.title = '移除';
+        del.addEventListener('click', function () {
+            URL.revokeObjectURL(item.url);
+            PDF_IMG_FILES.splice(idx, 1);
+            pdfImgRenderList();
+        });
+
+        row.appendChild(thumb);
+        row.appendChild(meta);
+        row.appendChild(up);
+        row.appendChild(down);
+        row.appendChild(del);
+        box.appendChild(row);
+    });
+}
+
+// 单图 → 嵌入对象。分型逻辑（pdf-lib 仅支持 JPG/PNG 两种字节流直嵌）：
+//   ① JPEG（魔数 FF D8）→ embedJpg(原字节)：零重编码、零损耗；
+//   ② PNG（魔数 89 50 4E 47）→ embedPng(原字节)：同上；
+//   ③ 其他格式（BMP/GIF/WebP/SVG…pdf-lib 不认识）→ Image 加载 → 离屏 canvas 重绘 →
+//      canvas.toBlob('image/png') 归一为 PNG 字节再 embedPng。
+//   说明：MIME type 可能为空或不准（拖拽场景），故按文件头魔数分型而非 type 字段；
+//   canvas 重绘路径上 drawImage 会自动应用浏览器默认的 image-orientation（即 EXIF 方向），
+//   归一化产物以"浏览器渲染方向"为准；直嵌路径不解析 EXIF（PDF 阅读器普遍忽略 EXIF 方向标记）。
+function pdfImgEmbedOne(pdfDoc, item) {
+    return pdfReadFileBytes(item.file).then(function (bytes) {
+        // 魔数嗅探：JPEG = FF D8，PNG = 89 50 4E 47（'‰PNG'）
+        var isJpg = bytes.length > 2 && bytes[0] === 0xFF && bytes[1] === 0xD8;
+        var isPng = bytes.length > 4 && bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4E && bytes[3] === 0x47;
+        if (isJpg) return pdfDoc.embedJpg(bytes);
+        if (isPng) return pdfDoc.embedPng(bytes);
+
+        // 其他格式归一化：objectURL → Image → canvas（naturalWidth/Height 为浏览器
+        // 解码后的尺寸，已含 EXIF 方向矫正）→ PNG Blob → 字节 → embedPng
+        return new Promise(function (resolve, reject) {
+            var img = new Image();
+            img.onload = function () { resolve(img); };
+            img.onerror = function () {
+                reject(new Error('浏览器无法解码该图片（' + item.name + '），请先转为 JPG/PNG'));
+            };
+            img.src = item.url; // 复用缩略图的 objectURL（File 的 blob URL，Image 可直接加载）
+        }).then(function (img) {
+            if (!img.naturalWidth || !img.naturalHeight) {
+                throw new Error(item.name + ' 无固有尺寸（如未设 width/height 的 SVG），无法转换');
+            }
+            // GIF 动图在此只取第一帧；BMP/WebP 等经 canvas 像素级重绘
+            var canvas = document.createElement('canvas');
+            canvas.width = img.naturalWidth;
+            canvas.height = img.naturalHeight;
+            canvas.getContext('2d').drawImage(img, 0, 0);
+            // 复用第 2 节的 canvas→Blob 工具（PNG 无质量参数）
+            return pdfCanvasToBlob(canvas, 'image/png');
+        }).then(function (blob) {
+            return pdfBlobToBytes(blob); // Blob → Uint8Array（embedPng 需要）
+        }).then(function (pngBytes) {
+            return pdfDoc.embedPng(pngBytes);
+        });
+    });
+}
+
+// A4 纵向尺寸（pt）：210mm × 297mm = 595.28 × 841.89
+var PDFIMG_A4_W = 595.28;
+var PDFIMG_A4_H = 841.89;
+
+// 主流程：逐张嵌入 → 按"页面尺寸"选项建页排版 → save → 下载 images.pdf
+function pdfImgToPdf() {
+    var resultEl = document.getElementById('pdfimg-result');
+    if (PDF_IMG_FILES.length === 0) {
+        showNotification('请先选择至少 1 张图片');
+        return;
+    }
+    var pageSize = pdfRadio('pdfimg-pagesize') || 'fit';
+    var margin = pdfNum('pdfimg-margin');
+    if (isNaN(margin) || margin < 0 || margin > 100) {
+        showNotification('边距必须为 0～100 之间的数字（pt）');
+        return;
+    }
+
+    var total = PDF_IMG_FILES.length;
+    resultEl.textContent = '⏳ 处理中…';
+    PDFLib.PDFDocument.create().then(function (pdfDoc) {
+        return pdfSequence(PDF_IMG_FILES, function (item, idx) {
+            resultEl.textContent = '⏳ 处理中：第 ' + (idx + 1) + '/' + total + ' 张（' + item.name + '）';
+            return pdfImgEmbedOne(pdfDoc, item).catch(function (err) {
+                // 单张失败带上文件名重抛，中断整体（避免静默缺页）
+                throw new Error('第 ' + (idx + 1) + ' 张（' + item.name + '）处理失败：' +
+                    (err && err.message ? err.message : err));
+            }).then(function (emb) {
+                // emb.width/height = 嵌入图像的固有像素尺寸（直嵌=原图像素；归一化=canvas 尺寸）
+                var iw = emb.width, ih = emb.height;
+                if (pageSize === 'a4') {
+                    // A4 纵向：等比缩放放入 (页宽-2m)×(页高-2m) 内容框（小图不放大，scale 上限 1），
+                    // 水平垂直居中；坐标原点在页面左下角
+                    var availW = PDFIMG_A4_W - 2 * margin;
+                    var availH = PDFIMG_A4_H - 2 * margin;
+                    if (availW <= 0 || availH <= 0) {
+                        throw new Error('边距过大：A4 内容区已无剩余空间（边距 ' + margin + ' pt）');
+                    }
+                    var scale = Math.min(availW / iw, availH / ih, 1);
+                    var dw = iw * scale, dh = ih * scale;
+                    var page = pdfDoc.addPage([PDFIMG_A4_W, PDFIMG_A4_H]);
+                    page.drawImage(emb, {
+                        x: (PDFIMG_A4_W - dw) / 2,
+                        y: (PDFIMG_A4_H - dh) / 2,
+                        width: dw,
+                        height: dh
+                    });
+                } else {
+                    // 按图片尺寸：页面 = 图片像素尺寸（1px = 1pt），整页铺满无边距
+                    var page2 = pdfDoc.addPage([iw, ih]);
+                    page2.drawImage(emb, { x: 0, y: 0, width: iw, height: ih });
+                }
+            });
+        }).then(function () {
+            return pdfDoc.save();
+        });
+    }).then(function (outBytes) {
+        var blob = new Blob([outBytes], { type: 'application/pdf' });
+        // a.download 下载（pdfDownloadBlob 内部即 gmCopyInput 式 a.download + objectURL）
+        pdfDownloadBlob(blob, 'images.pdf');
+        // 每张图恰好一页（GIF 取首帧也不多页），页数 = 图片张数
+        resultEl.textContent = '✅ ' + total + ' 张图片 → ' + total + ' 页 PDF，大小 ' + formatFileSize(blob.size);
+        showNotification('✅ 已生成 images.pdf（' + total + ' 页）');
+    }).catch(function (err) {
+        resultEl.textContent = '❌ ' + (err && err.message ? err.message : err);
+        pdfShowError('图片转 PDF', err);
+    });
+}
+
+// 清空列表：逐个释放 objectURL → 清数组 → 清文件输入 → 复位结果区
+function pdfImgClear() {
+    PDF_IMG_FILES.forEach(function (item) { URL.revokeObjectURL(item.url); });
+    PDF_IMG_FILES = [];
+    var input = document.getElementById('pdfimg-files');
+    if (input) input.value = ''; // 允许再次选择同一批文件仍触发 change
+    var resultEl = document.getElementById('pdfimg-result');
+    if (resultEl) resultEl.textContent = '选择图片并点击"生成 PDF"后此处显示结果';
+    pdfImgRenderList();
+    showNotification('已清空图片列表');
+}
+
+// 绑定 Section 7 拖拽/点击选区（写法同第 1 节 pdf-drop，multiple 多选；独立绑定，不改 pdfInit）
+function pdfImgInit() {
+    var dropZone = document.getElementById('pdfimg-drop');
+    var fileInput = document.getElementById('pdfimg-files');
+    if (!dropZone || !fileInput) return;
+    dropZone.addEventListener('click', function (event) {
+        if (event.target === fileInput) return; // 拦截 input 冒泡，避免无限递归
+        fileInput.click();
+    });
+    dropZone.addEventListener('dragover', function (event) {
+        event.preventDefault(); // 必须 preventDefault，否则浏览器直接打开文件
+        dropZone.classList.add('dragover');
+    });
+    dropZone.addEventListener('dragleave', function (event) {
+        event.preventDefault();
+        dropZone.classList.remove('dragover');
+    });
+    dropZone.addEventListener('drop', function (event) {
+        event.preventDefault();
+        dropZone.classList.remove('dragover');
+        var files = event.dataTransfer && event.dataTransfer.files;
+        if (files && files.length > 0) pdfImgAddFiles(files);
+    });
+    fileInput.addEventListener('change', function () {
+        if (fileInput.files && fileInput.files.length > 0) {
+            pdfImgAddFiles(fileInput.files);
+            fileInput.value = ''; // 允许连续选择同一批文件也能触发 change
+        }
+    });
+}
+
+// Section 7 自己的 readyState 绑定（追加块独立于文件头部的 pdfInit 绑定，互不影响）
+if (typeof document !== 'undefined') {
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', pdfImgInit);
+    } else {
+        pdfImgInit();
+    }
+}
