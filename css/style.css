@@ -1923,3 +1923,42 @@ h3.pdfimg-title {
     border-radius: 4px;
     font-size: 0.9em;
 }
+
+/* ============================================================
+   PDF 工具页 Section 8：PDF 压缩（其余复用 .section/.input-group/
+   .encoding-selector/.button-group/.result-area/.gm-oneline 等既有类）
+   ============================================================ */
+
+/* 小节标题（h3）：与 Section 7 的 .pdfimg-title 同视觉规格 */
+h3.pdfcmp-title {
+    color: #495057;
+    margin-bottom: 12px;
+    font-size: 1.15em;
+    border-bottom: 2px solid #667eea;
+    padding-bottom: 6px;
+}
+
+/* 质量滑块行 / 目标大小输入行（同 .imgc-quality-row 的滑块规格） */
+.pdfcmp-quality-row input[type="range"] {
+    width: 180px;
+    vertical-align: middle;
+    accent-color: #667eea;
+    cursor: pointer;
+}
+
+/* 滑块当前数值：主题色加粗，随 input 事件更新 */
+#pdfcmp-quality-value {
+    margin-left: 8px;
+    font-size: 13px;
+    font-weight: bold;
+    color: #667eea;
+}
+
+/* 目标大小数字输入（窄输入框 + 单位 MB 跟随其后） */
+.pdfcmp-quality-row input[type="number"] {
+    width: 90px;
+    padding: 4px 6px;
+    border: 1px solid #e9ecef;
+    border-radius: 4px;
+    font-size: 0.9em;
+}

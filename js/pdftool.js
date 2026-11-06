@@ -1056,3 +1056,266 @@ if (typeof document !== 'undefined') {
         pdfImgInit();
     }
 }
+
+// ---------------- Section 8：PDF 压缩（栅格化重编码，追加于上述既有代码之后，不改任何旧逻辑） ----------------
+//
+// 【原理与局限（诚实说明，与页面 tool-hint 一致）】
+// 浏览器端无法对矢量 PDF 做"无损重压缩"（真正的无损压缩需要重写内容流/重建交叉引用表，
+// 属于 Ghostscript/qpdf 等原生工具的能力范围）。本节的方案是<b>栅格化重编码</b>：
+//   pdf.js 逐页 render 成位图（scale = DPI/72，PDF 用户空间 72pt/英寸）
+//   → canvas 以指定 JPEG 质量编码（toBlob）
+//   → pdf-lib embedJpg 嵌入新文档，页面尺寸保持原页 pt 尺寸（视觉排版不变）
+// 体积通常显著下降（JPEG 连续调压缩远强于 PDF 内嵌的原始位图/字体流）。
+// 代价：① 文本层被"烧"进位图，不再可选中、可搜索；② 清晰度受 DPI 与 JPEG 质量双重限制；
+// ③ 对纯矢量文字小文件，重编码后可能反而变大（结果区会明确提示"请用原文件"）。
+//
+// 两种模式：
+//   按质量 —— 用户指定 JPEG 质量 + DPI，一次渲染完成；
+//   按目标大小 —— 对质量做二分搜索（lo=10 / hi=90，最多 6 轮），每轮全量渲染，
+//                 返回"达到目标大小的最高质量"结果；全部不达标时兜底返回质量 10 的结果。
+
+// 压缩结果缓存（pdfCmpDownload 用）：bytes = 输出字节；srcName = 压缩时的源文件名
+// （用户在第 1 节更换文件后旧结果失效，下载前按 srcName 比对拦截）
+var PDF_CMP_STATE = { bytes: null, srcName: '' };
+
+// 压缩模式切换：按质量 → 显示质量滑块；按目标大小 → 显示目标大小输入（DPI 单选两种模式共用）
+function pdfCmpModeChange() {
+    var mode = pdfRadio('pdfcmp-mode') || 'quality';
+    var qBlock = document.getElementById('pdfcmp-quality-block');
+    var tBlock = document.getElementById('pdfcmp-target-block');
+    if (qBlock) qBlock.style.display = mode === 'quality' ? '' : 'none';
+    if (tBlock) tBlock.style.display = mode === 'target' ? '' : 'none';
+}
+
+// 单次全量渲染 + 重新封装（"按质量"一次完成；"按目标大小"的每一轮也调用它）：
+//   doc            —— pdfjs PDFDocumentProxy（由调用方解析好传入）
+//   quality        —— JPEG 质量 10..90（canvas.toBlob 取 0..1，内部除以 100）
+//   dpi            —— 渲染分辨率（scale = dpi/72）
+//   progressPrefix —— 进度前缀（按目标大小模式传"第 k 轮："，按质量模式传 ''）
+//   progressEl     —— 进度显示元素（#pdfcmp-result）
+// 返回 Promise<Uint8Array>（新 PDF 的 save() 字节）
+function pdfCmpRenderQuality(doc, quality, dpi, progressPrefix, progressEl) {
+    var total = doc.numPages;
+    var scale = dpi / 72; // PDF 用户空间 72pt/英寸
+    // 跨页复用同一个 canvas 元素：避免多页文档反复 createElement 撑爆内存；
+    // 每页先重设 width/height（重设即清空画布）再补一次显式白色填充——
+    // JPEG 无透明通道，PDF 页面本身不自带白底（透明区域会编码成黑色），必须先铺白
+    var canvas = document.createElement('canvas');
+    var ctx = canvas.getContext('2d');
+    return PDFLib.PDFDocument.create().then(function (outDoc) {
+        var pages = [];
+        for (var i = 1; i <= total; i++) pages.push(i);
+        return pdfSequence(pages, function (no, idx) {
+            if (progressEl) {
+                progressEl.textContent = '⏳ ' + progressPrefix + '第 ' + (idx + 1) + '/' + total + ' 页';
+            }
+            return doc.getPage(no).then(function (page) {
+                var vp1 = page.getViewport({ scale: 1 }); // 原页 pt 尺寸（已含 /Rotate 旋转）
+                var vp = page.getViewport({ scale: scale });
+                canvas.width = Math.max(1, Math.floor(vp.width));
+                canvas.height = Math.max(1, Math.floor(vp.height));
+                ctx.fillStyle = '#ffffff';
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+                return page.render({
+                    canvasContext: ctx,
+                    viewport: vp
+                }).promise.then(function () {
+                    return pdfCmpCanvasToJpeg(canvas, quality / 100);
+                }).then(pdfBlobToBytes).then(function (jpgBytes) {
+                    return outDoc.embedJpg(jpgBytes);
+                }).then(function (emb) {
+                    // 页尺寸 = 原页 pt 尺寸（排版与原文一致），位图整页铺满
+                    var wPt = vp1.width, hPt = vp1.height;
+                    var p = outDoc.addPage([wPt, hPt]);
+                    p.drawImage(emb, { x: 0, y: 0, width: wPt, height: hPt });
+                });
+            });
+        }).then(function () {
+            return outDoc.save(); // → Uint8Array
+        });
+    });
+}
+
+// canvas → JPEG Blob（带质量参数；不复用第 2 节的 pdfCanvasToBlob——那里质量写死 0.92）
+function pdfCmpCanvasToJpeg(canvas, q) {
+    return new Promise(function (resolve, reject) {
+        if (typeof canvas.toBlob === 'function') {
+            canvas.toBlob(function (b) {
+                if (b) resolve(b);
+                else reject(new Error('canvas JPEG 编码失败'));
+            }, 'image/jpeg', q);
+            return;
+        }
+        // toBlob 不可用的老浏览器：dataURL 手工转（同 pdfCanvasToBlob 的兜底路径）
+        try {
+            var parts = canvas.toDataURL('image/jpeg', q).split(',');
+            var bin = atob(parts[1]);
+            var arr = new Uint8Array(bin.length);
+            for (var i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+            resolve(new Blob([arr], { type: 'image/jpeg' }));
+        } catch (e) {
+            reject(e);
+        }
+    });
+}
+
+// 按目标大小的质量二分搜索（纯逻辑函数，渲染通过 renderFn 注入，Node 下可对拍）：
+//   targetBytes —— 目标字节数（MB×1024×1024）
+//   renderFn(q) —— 以质量 q 全量渲染，返回 Promise<Uint8Array>（输出字节）
+// 区间 [lo=10, hi=90]，最多 6 轮：每轮 mid = round((lo+hi)/2)，输出 ≤ 目标则 lo=mid 记录
+// 当前最优，否则 hi=mid；相邻整数质量已无待测值（hi-lo ≤ 1）或满 6 轮即收敛结束。
+// 返回 Promise<{ quality, bytes, ok }>：
+//   ok=true  —— 达标结果中质量最高者（best）；
+//   ok=false —— 全部轮次均不达标（二分过程中的 mid 恒 > 10），补渲染一次最低质量 10 兜底，
+//               由调用方注明"已达最低质量仍大于目标"
+function pdfCmpBinarySearchQuality(targetBytes, renderFn) {
+    var lo = 10, hi = 90, best = null, round = 0;
+    function step() {
+        if (hi - lo <= 1 || round >= 6) {
+            if (best) return Promise.resolve({ quality: best.quality, bytes: best.bytes, ok: true });
+            return renderFn(10).then(function (bytes) {
+                return { quality: 10, bytes: bytes, ok: false };
+            });
+        }
+        round++;
+        var mid = Math.round((lo + hi) / 2);
+        return renderFn(mid).then(function (bytes) {
+            if (bytes.length <= targetBytes) {
+                lo = mid;
+                best = { quality: mid, bytes: bytes }; // 达标 → 记录最优（质量更高者后续覆盖）
+            } else {
+                hi = mid;
+            }
+            return step(); // 尾递归驱动下一轮（Promise 链顺序执行）
+        });
+    }
+    return step();
+}
+
+// "开始压缩"入口：读取模式/质量/DPI/目标 → 重新 getDocument（不复用 PDF_STATE.pdfjsDoc
+// 缓存——压缩流程多轮全量渲染，独占一份文档对象更稳妥）→ 渲染 → 结果统计 + 下载按钮
+function pdfCompressRun() {
+    if (!pdfEnsureFile()) return;
+    var resultEl = document.getElementById('pdfcmp-result');
+    var dlBtn = document.getElementById('pdfcmp-download-btn');
+    var mode = pdfRadio('pdfcmp-mode') || 'quality';
+    var dpi = parseInt(pdfRadio('pdfcmp-dpi'), 10) || 120;
+    var quality = parseInt(document.getElementById('pdfcmp-quality').value, 10);
+    if (isNaN(quality) || quality < 10 || quality > 90) quality = 60; // 滑块异常值兜底
+    var targetMB = 0;
+    if (mode === 'target') {
+        targetMB = pdfNum('pdfcmp-target');
+        if (isNaN(targetMB) || targetMB <= 0) {
+            showNotification('目标大小必须为大于 0 的数字（MB）');
+            return;
+        }
+    }
+
+    // 复位上一轮结果（按钮隐藏、缓存清空），进度区进入工作状态
+    dlBtn.style.display = 'none';
+    PDF_CMP_STATE.bytes = null;
+    resultEl.textContent = '⏳ 正在解析 PDF…';
+
+    // bytes.slice() 副本：pdfjs 会转移传入缓冲区所有权（同 pdfGetJsDoc 的注意事项）
+    var jsDoc = null;
+    function releaseDoc() {
+        if (jsDoc) { try { jsDoc.destroy(); } catch (e) { /* 忽略销毁异常 */ } }
+        jsDoc = null;
+    }
+
+    pdfjsLib.getDocument({ data: PDF_STATE.bytes.slice() }).promise.then(function (doc) {
+        jsDoc = doc;
+        if (doc.numPages > 30) {
+            showNotification('页数较多（' + doc.numPages + ' 页），栅格化耗时较长，请耐心等待');
+        }
+        var roundNo = 0; // 已执行的全量渲染轮数（进度前缀与结果统计共用）
+        var renderFn = function (q) {
+            roundNo++;
+            var prefix = mode === 'target' ? '第 ' + roundNo + ' 轮：' : '';
+            return pdfCmpRenderQuality(doc, q, dpi, prefix, resultEl);
+        };
+        if (mode === 'target') {
+            var targetBytes = Math.round(targetMB * 1024 * 1024);
+            return pdfCmpBinarySearchQuality(targetBytes, renderFn).then(function (r) {
+                return {
+                    bytes: r.bytes,
+                    quality: r.quality,
+                    rounds: roundNo,
+                    // 不达标时注明（达标时为空串，不渲染该段）
+                    note: r.ok ? '' : '已达最低质量 10 仍大于目标 ' + targetMB + ' MB'
+                };
+            });
+        }
+        return renderFn(quality).then(function (bytes) {
+            return { bytes: bytes, quality: quality, rounds: 1, note: '' };
+        });
+    }).then(function (r) {
+        releaseDoc(); // 渲染全部结束，释放 worker 侧文档
+        PDF_CMP_STATE.bytes = r.bytes;
+        PDF_CMP_STATE.srcName = PDF_STATE.name;
+
+        // 统计：压缩率 = (1 - 输出/原文)×100（负数即反而增大）
+        var origSize = PDF_STATE.bytes.length;
+        var outSize = r.bytes.length;
+        var ratio = origSize > 0 ? (1 - outSize / origSize) * 100 : 0;
+        var lines = [];
+        if (outSize >= origSize) {
+            // 诚实提示：扫描件已高度压缩/矢量小文件重编码后常见反而增大，仍提供下载由用户自行取舍
+            lines.push('⚠️ 原文件已足够优化，压缩后反而增大，请用原文件');
+        }
+        var stat = '原文 ' + formatFileSize(origSize) + ' → 压缩后 ' + formatFileSize(outSize) +
+            '（压缩率 ' + ratio.toFixed(1) + '%，质量 ' + r.quality + ' / ' + dpi + ' DPI';
+        stat += mode === 'target' ? '，二分 ' + r.rounds + ' 轮）' : '）';
+        lines.push(stat);
+        if (r.note) lines.push('⚠️ ' + r.note + '，如需更小请改用"按质量"模式并调低质量/DPI');
+        resultEl.textContent = lines.join('\n');
+        dlBtn.style.display = ''; // 显示下载按钮（不达标/增大也提供下载）
+    }).catch(function (err) {
+        releaseDoc();
+        resultEl.textContent = '❌ ' + (pdfIsPasswordError(err)
+            ? 'PDF 已加密，本工具暂不支持口令 PDF'
+            : (err && err.message ? err.message : err));
+        pdfShowError('PDF 压缩', err);
+    });
+}
+
+// 下载压缩结果（文件名 = 原名_compressed.pdf）；源文件已更换时拦截并提示重新压缩
+function pdfCmpDownload() {
+    if (!PDF_CMP_STATE.bytes) {
+        showNotification('请先点击"开始压缩"');
+        return;
+    }
+    if (!PDF_STATE.bytes || PDF_CMP_STATE.srcName !== PDF_STATE.name) {
+        showNotification('源文件已更换，请重新压缩后再下载');
+        return;
+    }
+    pdfDownloadBlob(new Blob([PDF_CMP_STATE.bytes], { type: 'application/pdf' }),
+        pdfBuildDocName('_compressed'));
+}
+
+// Section 8 初始化：质量滑块 input 事件同步数值显示；模式单选初始可见性对齐
+function pdfCmpInit() {
+    var slider = document.getElementById('pdfcmp-quality');
+    var sliderValue = document.getElementById('pdfcmp-quality-value');
+    if (slider && sliderValue) {
+        slider.addEventListener('input', function () {
+            sliderValue.textContent = slider.value;
+        });
+    }
+    pdfCmpModeChange(); // 页面加载时按当前选中模式对齐参数区可见性（HTML 已默认一致，此处兜底）
+}
+
+// Section 8 自己的 readyState 绑定（追加块独立于文件头部的 pdfInit 绑定，互不影响）
+if (typeof document !== 'undefined') {
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', pdfCmpInit);
+    } else {
+        pdfCmpInit();
+    }
+}
+
+// 追加导出（不改动文件中部既有的 module.exports 赋值块，向其挂新属性）：
+// pdfCmpBinarySearchQuality 为纯逻辑（渲染函数注入），Node 下用假 renderFn 即可对拍二分收敛
+if (typeof module !== 'undefined' && module.exports) {
+    module.exports.pdfCmpBinarySearchQuality = pdfCmpBinarySearchQuality;
+}

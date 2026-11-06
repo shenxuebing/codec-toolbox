@@ -178,6 +178,183 @@ function scanDetectBounds(gray, w, h) {
     return corners;
 }
 
+// ---------- V2 边界检测：连通域 + 凸包 + 最大面积四边形 ----------
+// 相比 V1（行列投影只能得到正置矩形），V2 通过"最大文档连通域 → 凸包 → 最大
+// 面积四边形"找出倾斜文档的真实四角，支持任意旋转/透视角度的文档，
+// 与手机扫描 App 的检测思路一致。
+
+// V2 主入口：灰度图 → 候选四角（tl/tr/br/bl）；失败返回 null（由调用方降级 V1）
+function scanDetectBoundsV2(gray, w, h) {
+    // 检测在缩小的分辨率上做（性能：连通域 BFS 与凸包的输入量级受控），
+    // 结果按比例映射回原分辨率
+    var DS = 4;
+    if (Math.max(w, h) / DS < 80) { DS = 1; }   // 小图不缩小
+    var dw = Math.max(1, Math.floor(w / DS));
+    var dh = Math.max(1, Math.floor(h / DS));
+
+    // 1. 二值化（复用 Otsu + 边缘带极性自适应，与 V1 同口径）
+    var otsu = scanOtsuThreshold(gray);
+    var m = Math.max(1, Math.round(Math.min(w, h) * 0.08));
+    var borderSum = 0, borderCnt = 0, x, y;
+    for (y = 0; y < h; y++) {
+        var rowTop = y < m, rowBot = y >= h - m;
+        for (x = 0; x < w; x++) {
+            if (rowTop || rowBot || x < m || x >= w - m) { borderSum += gray[y * w + x]; borderCnt++; }
+        }
+    }
+    var darkBg = borderCnt > 0 && borderSum / borderCnt < 128;
+
+    // 2. 缩小分辨率上的前景图（前景=文档）
+    var fg = new Uint8Array(dw * dh);
+    for (y = 0; y < dh; y++) {
+        var sy = Math.min(h - 1, Math.floor((y + 0.5) * DS));
+        for (x = 0; x < dw; x++) {
+            var sx = Math.min(w - 1, Math.floor((x + 0.5) * DS));
+            var v = gray[sy * w + sx];
+            fg[y * dw + x] = (darkBg ? v > otsu : v < otsu) ? 1 : 0;
+        }
+    }
+
+    // 3. 连通域标记（4 连通 BFS），取像素数最大的组件为文档主体。
+    //    背景通常也是一大块连通域——但极性自适应后背景为"非前景"不参与标记，
+    //    只有真正的文档（及文档上的贴纸等小块）会成为前景组件
+    var label = new Int32Array(dw * dh);          // 0 = 未访问
+    var compSizes = [0];                          // 下标 i 对应 label 值 i+1
+    var queue = new Int32Array(dw * dh);
+    var bestLabel = 0, bestSize = 0, curLabel = 0;
+    for (var p0 = 0; p0 < fg.length; p0++) {
+        if (fg[p0] && label[p0] === 0) {
+            curLabel++;
+            var qh = 0, qt = 0;
+            queue[qt++] = p0;
+            label[p0] = curLabel;
+            var size = 0;
+            while (qh < qt) {
+                var cur = queue[qh++];
+                size++;
+                var cx = cur % dw, cy = (cur / dw) | 0;
+                // 4 连通邻居
+                if (cx > 0 && fg[cur - 1] && label[cur - 1] === 0) { label[cur - 1] = curLabel; queue[qt++] = cur - 1; }
+                if (cx < dw - 1 && fg[cur + 1] && label[cur + 1] === 0) { label[cur + 1] = curLabel; queue[qt++] = cur + 1; }
+                if (cy > 0 && fg[cur - dw] && label[cur - dw] === 0) { label[cur - dw] = curLabel; queue[qt++] = cur - dw; }
+                if (cy < dh - 1 && fg[cur + dw] && label[cur + dw] === 0) { label[cur + dw] = curLabel; queue[qt++] = cur + dw; }
+            }
+            compSizes.push(size);
+            if (size > bestSize) { bestSize = size; bestLabel = curLabel; }
+        }
+    }
+    // 文档组件必须占画面一定比例（太小说明没拍到文档或纯噪声）
+    if (bestSize < dw * dh * 0.05) { return null; }
+
+    // 4. 收集文档组件的边界点（组件中至少一个邻居为背景/出界的像素），
+    //    边界点数量远小于组件全部像素，凸包输入量级可控
+    var boundary = [];
+    for (y = 0; y < dh; y++) {
+        for (x = 0; x < dw; x++) {
+            var p = y * dw + x;
+            if (label[p] !== bestLabel) { continue; }
+            var isB = false;
+            if (x === 0 || x === dw - 1 || y === 0 || y === dh - 1) { isB = true; }
+            else if (!fg[p - 1] || !fg[p + 1] || !fg[p - dw] || !fg[p + dw]) { isB = true; }
+            if (isB) { boundary.push({ x: x, y: y }); }
+        }
+    }
+    if (boundary.length < 4) { return null; }
+
+    // 5. 凸包（Andrew 单调链），再 Douglas-Peucker 式简化到 ≤ 48 点控制四边形搜索量
+    var hull = scanConvexHull(boundary);
+    while (hull.length > 48) {
+        // 每轮移除"与前驱后继连线偏离最小"的顶点（保面积损失最小的简化）
+        var worst = -1, worstLoss = Infinity;
+        for (var i = 0; i < hull.length; i++) {
+            var prev = hull[(i - 1 + hull.length) % hull.length];
+            var next = hull[(i + 1) % hull.length];
+            var loss = Math.abs((next.x - prev.x) * (prev.y - hull[i].y) - (prev.x - hull[i].x) * (next.y - prev.y)) / 2;
+            if (loss < worstLoss) { worstLoss = loss; worst = i; }
+        }
+        hull.splice(worst, 1);
+    }
+
+    // 6. 凸包上最大面积四边形（h ≤ 48 时 C(48,4)≈19 万组合，暴力可接受）
+    var quad = scanMaxAreaQuad(hull);
+    if (!quad) { return null; }
+
+    // 7. 四角命名（tl=左上 tr=右上 br=右下 bl=左下）+ 面积占比校验 + 映射回原分辨率
+    var named = scanNameQuad(quad);
+    // 面积占比用缩图面积（dw×dh）作分母——named 四角是缩图坐标，
+    // 除以原图面积会缩小 DS² 倍导致误杀（31.7% 被算成 1.98%）
+    var areaRatio = Math.abs(scanQuadArea(named)) / (dw * dh);
+    if (areaRatio < 0.05) { return null; }        // 文档过小视为检测失败
+    [named.tl, named.tr, named.br, named.bl].forEach(function (pt) {
+        pt.x = Math.max(0, Math.min(w, Math.round(pt.x * DS)));
+        pt.y = Math.max(0, Math.min(h, Math.round(pt.y * DS)));
+    });
+    return named;
+}
+
+// Andrew 单调链凸包（点数 n log n；输入为 {x,y} 数组）
+function scanConvexHull(points) {
+    if (points.length < 3) { return points.slice(); }
+    var pts = points.slice().sort(function (a, b) { return a.x - b.x || a.y - b.y; });
+    function cross(o, a, b) { return (a.x - o.x) * (b.y - o.y) - (a.y - o.y) * (b.x - o.x); }
+    var lower = [], upper = [];
+    for (var i = 0; i < pts.length; i++) {
+        while (lower.length >= 2 && cross(lower[lower.length - 2], lower[lower.length - 1], pts[i]) <= 0) { lower.pop(); }
+        lower.push(pts[i]);
+    }
+    for (var j = pts.length - 1; j >= 0; j--) {
+        while (upper.length >= 2 && cross(upper[upper.length - 2], upper[upper.length - 1], pts[j]) <= 0) { upper.pop(); }
+        upper.push(pts[j]);
+    }
+    lower.pop(); upper.pop();
+    return lower.concat(upper);
+}
+
+// 凸包上最大面积四边形（顶点序遍历暴力，h ≤ 48 时约 19 万组合可接受；
+// 返回按凸包顺序排列的 4 点，或 null（顶点不足 4））
+function scanMaxAreaQuad(hull) {
+    if (hull.length < 4) { return null; }
+    var h = hull.length;
+    var best = null, bestArea = -1;
+    for (var a = 0; a < h - 3; a++) {
+        for (var b = a + 1; b < h - 2; b++) {
+            for (var c = b + 1; c < h - 1; c++) {
+                for (var d = c + 1; d < h; d++) {
+                    var area = 0;
+                    var pts = [hull[a], hull[b], hull[c], hull[d]];
+                    for (var k = 0; k < 4; k++) {
+                        var p1 = pts[k], p2 = pts[(k + 1) % 4];
+                        area += p1.x * p2.y - p2.x * p1.y;
+                    }
+                    area = Math.abs(area) / 2;
+                    if (area > bestArea) {
+                        bestArea = area;
+                        best = { tl: hull[a], tr: hull[b], br: hull[c], bl: hull[d] };
+                    }
+                }
+            }
+        }
+    }
+    return best;
+}
+
+// 四角按几何位置命名：tl=左上（x+y 最小）、br=右下（x+y 最大）、
+// tr=右上（y−x 最大）、bl=左下（y−x 最小）
+function scanNameQuad(quadPts) {
+    var pts = [quadPts.tl, quadPts.tr, quadPts.br, quadPts.bl];
+    var cx = 0, cy = 0;
+    pts.forEach(function (p) { cx += p.x; cy += p.y; });
+    cx /= 4; cy /= 4;
+    var tl = pts[0], tr = pts[0], br = pts[0], bl = pts[0];
+    pts.forEach(function (p) {
+        if (p.x + p.y < tl.x + tl.y) { tl = p; }
+        if (p.x + p.y > br.x + br.y) { br = p; }
+        if (p.y - p.x > tr.y - tr.x) { tr = p; }
+        if (p.y - p.x < bl.y - bl.x) { bl = p; }
+    });
+    return { tl: { x: tl.x, y: tl.y }, tr: { x: tr.x, y: tr.y }, br: { x: br.x, y: br.y }, bl: { x: bl.x, y: bl.y } };
+}
+
 // 求输出尺寸：宽 = 上/下边长较大者，高 = 左/右边长较大者（透视下对边不等长，取大者不裁内容）
 function scanOutputSize(corners) {
     function dist(a, b) {
@@ -368,7 +545,8 @@ if (typeof module !== 'undefined' && module.exports) {
         scanQuadArea: scanQuadArea,
         scanBuildHomography: scanBuildHomography,
         scanPerspectiveCrop: scanPerspectiveCrop,
-        scanEnhance: scanEnhance
+        scanEnhance: scanEnhance,
+        scanDetectBoundsV2: scanDetectBoundsV2
     };
 }
 
@@ -501,7 +679,11 @@ function scanAutoDetect(auto) {
     }
     var imgData = scanCtx.getImageData(0, 0, scanW, scanH);
     var gray = scanToGray(imgData);
-    var b = scanDetectBounds(gray, scanW, scanH);
+    // V2（连通域+凸包+最大四边形）优先：能找倾斜文档的真实四角；
+    // V2 失败（无组件/组件过小/面积过小）降级 V1 行列投影（只找正置矩形）
+    var b = scanDetectBoundsV2(gray, scanW, scanH);
+    var usedV2 = !!b;
+    if (!b) { b = scanDetectBounds(gray, scanW, scanH); }
     scanCorners = b;
     scanLayoutCorners();
     // 检测结果几乎铺满全图 → 视为未找到明显文档边界（纯色图也走此分支）
@@ -509,7 +691,7 @@ function scanAutoDetect(auto) {
     if (full) {
         showNotification('⚠️ 未检测到明显的文档边界，已铺满四角，请手动拖动角点框选');
     } else if (!auto) {
-        showNotification('✅ 已自动检测文档边界，可拖动角点微调');
+        showNotification('✅ 已自动检测文档边界（' + (usedV2 ? '精确四角' : '快速矩形') + '），可拖动角点微调');
     }
 }
 

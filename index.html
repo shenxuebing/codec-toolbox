@@ -2405,6 +2405,48 @@
                     <p class="tool-hint">💡 JPEG/PNG 按原字节直接嵌入（无重编码损耗）；BMP/GIF/WebP 等其他格式经浏览器 canvas 重绘归一为 PNG 后嵌入（GIF 只取首帧）。EXIF 旋转方向不做矫正，以浏览器渲染方向为准。"按图片尺寸"模式下页面大小 = 图片像素尺寸（1px = 1pt）；边距仅 A4 模式生效。</p>
                 </div>
 
+                <!-- Section 8：PDF 压缩（栅格化重编码：pdfjs 逐页渲染位图 + pdf-lib embedJpg 重新封装） -->
+                <div class="section">
+                    <h3 class="pdfcmp-title">📉 PDF 压缩（栅格化重编码）</h3>
+                    <!-- 诚实说明：原理与代价必须明示，不夸大为"无损压缩" -->
+                    <p class="tool-hint">⚠️ <b>压缩原理：</b>把每一页渲染为位图，再以 JPEG 重新封装成新 PDF，体积通常显著减小；<b>代价：压缩后文本不再可选中、不再可搜索，清晰度随 DPI / 质量设置下降</b>。矢量内容的无损压缩无法在浏览器端完成，本功能是"有损压缩"。基于第 1 节选择的文件操作，加密口令 PDF 不支持。</p>
+                    <div class="encoding-selector">
+                        <label style="margin-right: 20px; font-weight: bold; color: #333;">压缩模式：</label>
+                        <label><input type="radio" name="pdfcmp-mode" value="quality" checked onchange="pdfCmpModeChange()"><span>按质量</span></label>
+                        <label><input type="radio" name="pdfcmp-mode" value="target" onchange="pdfCmpModeChange()"><span>按目标大小（MB）</span></label>
+                    </div>
+                    <!-- 按质量模式参数：JPEG 质量滑块（两种模式共用下方的 DPI 单选） -->
+                    <div class="input-group" id="pdfcmp-quality-block">
+                        <label>JPEG 质量（数值越大越清晰、体积越大）</label>
+                        <div class="pdfcmp-quality-row">
+                            <input type="range" id="pdfcmp-quality" min="10" max="90" value="60">
+                            <span id="pdfcmp-quality-value">60</span>
+                        </div>
+                    </div>
+                    <!-- 渲染 DPI：两种模式共用（影响清晰度与体积；按目标大小时也按此 DPI 渲染） -->
+                    <div class="encoding-selector">
+                        <label style="margin-right: 20px; font-weight: bold; color: #333;">渲染 DPI（越高越清晰、体积越大）：</label>
+                        <label><input type="radio" name="pdfcmp-dpi" value="96"><span>96</span></label>
+                        <label><input type="radio" name="pdfcmp-dpi" value="120" checked><span>120</span></label>
+                        <label><input type="radio" name="pdfcmp-dpi" value="150"><span>150</span></label>
+                        <label><input type="radio" name="pdfcmp-dpi" value="200"><span>200</span></label>
+                    </div>
+                    <!-- 按目标大小模式参数：仅该模式可见（pdfCmpModeChange 切换） -->
+                    <div class="input-group" id="pdfcmp-target-block" style="display:none;">
+                        <label>目标大小（MB）——自动二分 JPEG 质量寻找达标的最高质量</label>
+                        <div class="pdfcmp-quality-row">
+                            <input type="number" id="pdfcmp-target" value="3" min="0.1" step="0.1"> MB
+                        </div>
+                    </div>
+                    <div class="button-group">
+                        <button type="button" class="btn btn-primary" onclick="pdfCompressRun()">开始压缩</button>
+                        <!-- 压缩成功后才显示（由 JS 控制可见性） -->
+                        <button type="button" class="btn btn-secondary" id="pdfcmp-download-btn" style="display:none;" onclick="pdfCmpDownload()">下载压缩后 PDF</button>
+                    </div>
+                    <!-- 进度与结果共用一行区（由 JS textContent 填充：进度"第 k 轮：第 i/N 页"→ 最终统计） -->
+                    <div id="pdfcmp-result" class="result-area gm-oneline">基于第 1 节选择的文件压缩，完成后此处显示结果</div>
+                </div>
+
             </div>
 
             <!-- 年龄计算：周岁（日历借位）/ 总生存 / 下次生日 / 生肖 / 星座 -->
