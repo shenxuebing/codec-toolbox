@@ -355,6 +355,187 @@ function scanNameQuad(quadPts) {
     return { tl: { x: tl.x, y: tl.y }, tr: { x: tr.x, y: tr.y }, br: { x: br.x, y: br.y }, bl: { x: bl.x, y: bl.y } };
 }
 
+// ---------- V3 边界检测：Sobel 梯度 + Hough 直线（应对低对比度场景） ----------
+// V2（连通域+极性二值化）在"浅色文档 + 浅色背景"时会把背景当最大组件导致
+// 四角铺满全图（真实用户案例：米色桌布上的浅色出生证明）。V3 不依赖颜色
+// 极性：文档边缘的阴影线/色差线在梯度图上是强响应，用 Hough 变换找四条
+// 最强边界直线（上/下/左/右各一），交点即四角。近正置拍摄效果最好，
+// 大角度倾斜文档由 V2 兜底。
+
+function scanDetectBoundsV3(gray, w, h) {
+    // 降采样到最长边 ~240px（Hough 运算量受控，精度足够：1px≈原图 1.5px）
+    var DS = Math.max(1, Math.ceil(Math.max(w, h) / 240));
+    var dw = Math.max(40, Math.floor(w / DS));
+    var dh = Math.max(40, Math.floor(h / DS));
+    var sm = new Float32Array(dw * dh);
+    for (var y = 0; y < dh; y++) {
+        for (var x = 0; x < dw; x++) {
+            sm[y * dw + x] = gray[Math.min(h - 1, Math.floor((y + 0.5) * DS)) * w + Math.min(w - 1, Math.floor((x + 0.5) * DS))];
+        }
+    }
+
+    // Sobel 梯度幅值（边缘一圈置 0，避免把照片边界当文档边界）
+    var mag = new Float32Array(dw * dh);
+    for (y = 1; y < dh - 1; y++) {
+        for (x = 1; x < dw - 1; x++) {
+            var i = y * dw + x;
+            var tl = sm[i - dw - 1], t = sm[i - dw], tr = sm[i - dw + 1];
+            var l = sm[i - 1], r = sm[i + 1];
+            var bl = sm[i + dw - 1], b = sm[i + dw], br = sm[i + dw + 1];
+            var gx = (tr + 2 * r + br) - (tl + 2 * l + bl);
+            var gy = (bl + 2 * b + br) - (tl + 2 * t + tr);
+            mag[i] = Math.sqrt(gx * gx + gy * gy);
+        }
+    }
+
+    // 边缘点：幅值 ≥ 90 分位且 ≥ 12（双门槛去噪）；超量按幅值降序截断到 3000
+    var mags = [];
+    for (y = 1; y < dh - 1; y++) { for (x = 1; x < dw - 1; x++) { mags.push(mag[y * dw + x]); } }
+    mags.sort(function (a, b) { return a - b; });
+    var thr = Math.max(12, mags[Math.floor(mags.length * 0.90)]);
+    var edgePts = [];
+    for (y = 1; y < dh - 1; y++) {
+        for (x = 1; x < dw - 1; x++) {
+            var m2 = mag[y * dw + x];
+            if (m2 >= thr && m2 > 12) { edgePts.push({ x: x, y: y, m: m2 }); }
+        }
+    }
+    if (edgePts.length > 3000) {
+        edgePts.sort(function (a, b) { return b.m - a.m; });
+        edgePts = edgePts.slice(0, 3000);
+    }
+    if (edgePts.length < 40) { return null; }
+
+    // Hough 变换：θ ∈ [0,180) 1° 步长，ρ 居中存储
+    var diag = Math.ceil(Math.sqrt(dw * dw + dh * dh));
+    var nTheta = 180, nRho = diag * 2 + 1;
+    var acc = new Int32Array(nTheta * nRho);
+    var cosT = [], sinT = [];
+    for (var t = 0; t < nTheta; t++) {
+        var a = t * Math.PI / 180;
+        cosT.push(Math.cos(a)); sinT.push(Math.sin(a));
+    }
+    for (var e = 0; e < edgePts.length; e++) {
+        var px = edgePts[e].x, py = edgePts[e].y;
+        for (t = 0; t < nTheta; t++) {
+            var rho = Math.round(px * cosT[t] + py * sinT[t]) + diag;
+            if (rho >= 0 && rho < nRho) { acc[t * nRho + rho]++; }
+        }
+    }
+
+    // 峰值提取（3×3 邻域非极大抑制，票数 ≥ max 的 35% 且 ≥ 20）
+    var maxVotes = 0;
+    for (t = 0; t < acc.length; t++) { if (acc[t] > maxVotes) { maxVotes = acc[t]; } }
+    var peaks = [];
+    var peakThr = Math.max(20, maxVotes * 0.35);
+    for (t = 0; t < nTheta; t++) {
+        for (var r2 = 1; r2 < nRho - 1; r2++) {
+            var v = acc[t * nRho + r2];
+            if (v < peakThr) { continue; }
+            var isPeak = true;
+            for (var dt = -1; dt <= 1 && isPeak; dt++) {
+                for (var dr = -1; dr <= 1; dr++) {
+                    if (dt === 0 && dr === 0) { continue; }
+                    var tt = (t + dt + nTheta) % nTheta, rr = r2 + dr;
+                    if (rr >= 0 && rr < nRho && acc[tt * nRho + rr] > v) { isPeak = false; break; }
+                }
+            }
+            if (isPeak) { peaks.push({ t: t, rho: r2 - diag, votes: v }); }
+        }
+    }
+    if (peaks.length < 4) { return null; }
+    peaks.sort(function (a, b) { return b.votes - a.votes; });
+
+    // 分组：水平线（|sinθ| ≥ 0.5，法线偏竖直 → 直线偏水平）按位置分上下；
+    // 垂直线（其余）按位置分左右。每组取票数最高的前 3 条组成候选
+    function linePointX(p) {   // 垂直线在 y=dh/2 处的 x 坐标
+        return Math.abs(Math.cos(p.t * Math.PI / 180)) > 1e-6
+            ? (p.rho - (dh / 2) * Math.sin(p.t * Math.PI / 180)) / Math.cos(p.t * Math.PI / 180)
+            : p.rho;
+    }
+    function linePointY(p) {   // 水平线在 x=dw/2 处的 y 坐标
+        return Math.abs(Math.sin(p.t * Math.PI / 180)) > 1e-6
+            ? (p.rho - (dw / 2) * Math.cos(p.t * Math.PI / 180)) / Math.sin(p.t * Math.PI / 180)
+            : p.rho;
+    }
+    var horiz = [], vert = [];
+    for (var pi = 0; pi < peaks.length && (horiz.length < 6 || vert.length < 6); pi++) {
+        var pk = peaks[pi];
+        var thetaRad = pk.t * Math.PI / 180;
+        if (Math.abs(Math.sin(thetaRad)) >= 0.5) {
+            var yy = linePointY(pk);
+            if (yy > 2 && yy < dh - 2) { horiz.push({ pk: pk, pos: yy }); }
+        } else {
+            var xx = linePointX(pk);
+            if (xx > 2 && xx < dw - 2) { vert.push({ pk: pk, pos: xx }); }
+        }
+    }
+    if (horiz.length < 2 || vert.length < 2) { return null; }
+    horiz.sort(function (a, b) { return a.pos - b.pos; });
+    vert.sort(function (a, b) { return a.pos - b.pos; });
+
+    // 两直线交点：解 x·cos1 + y·sin1 = ρ1 与 x·cos2 + y·sin2 = ρ2
+    function intersect(p1, p2) {
+        var c1 = Math.cos(p1.t * Math.PI / 180), s1 = Math.sin(p1.t * Math.PI / 180);
+        var c2 = Math.cos(p2.t * Math.PI / 180), s2 = Math.sin(p2.t * Math.PI / 180);
+        var d = c1 * s2 - s1 * c2;
+        if (Math.abs(d) < 0.05) { return null; }   // 近平行
+        return { x: (p1.rho * s2 - p2.rho * s1) / d, y: (p2.rho * c1 - p1.rho * c2) / d };
+    }
+
+    // 组合评分：上/下/左/右各取一条（优先票数，位置需构成合理四边形：
+    // 面积占比 8%~98%、凸、交点均在画面 ±5% 内）；score = 总票数
+    var bestQuad = null, bestScore = 0;
+    var topList = horiz.slice(0, Math.min(3, Math.ceil(horiz.length / 2)));
+    var botList = horiz.slice(Math.max(1, horiz.length - 3));
+    var leftList = vert.slice(0, Math.min(3, Math.ceil(vert.length / 2)));
+    var rightList = vert.slice(Math.max(1, vert.length - 3));
+    for (var ti = 0; ti < topList.length; ti++) {
+        for (var bi = 0; bi < botList.length; bi++) {
+            if (botList[bi].pos <= topList[ti].pos + dh * 0.1) { continue; }   // 上下距离过近
+            for (var li = 0; li < leftList.length; li++) {
+                for (var ri = 0; ri < rightList.length; ri++) {
+                    if (rightList[ri].pos <= leftList[li].pos + dw * 0.1) { continue; }
+                    var cTL = intersect(topList[ti].pk, leftList[li].pk);
+                    var cTR = intersect(topList[ti].pk, rightList[ri].pk);
+                    var cBR = intersect(botList[bi].pk, rightList[ri].pk);
+                    var cBL = intersect(botList[bi].pk, leftList[li].pk);
+                    if (!cTL || !cTR || !cBR || !cBL) { continue; }
+                    var quadPts = [cTL, cTR, cBR, cBL];
+                    // 交点需在画面附近（±5% 余量）
+                    var inBound = true;
+                    for (var q = 0; q < 4; q++) {
+                        if (quadPts[q].x < -dw * 0.05 || quadPts[q].x > dw * 1.05 ||
+                            quadPts[q].y < -dh * 0.05 || quadPts[q].y > dh * 1.05) { inBound = false; break; }
+                    }
+                    if (!inBound) { continue; }
+                    var area = 0;
+                    for (q = 0; q < 4; q++) {
+                        var pA = quadPts[q], pB = quadPts[(q + 1) % 4];
+                        area += pA.x * pB.y - pB.x * pA.y;
+                    }
+                    area = Math.abs(area) / 2;
+                    var ratio = area / (dw * dh);
+                    if (ratio < 0.08 || ratio > 0.98) { continue; }
+                    var votes = topList[ti].pk.votes + botList[bi].pk.votes + leftList[li].pk.votes + rightList[ri].pk.votes;
+                    if (votes > bestScore) {
+                        bestScore = votes;
+                        bestQuad = { tl: cTL, tr: cTR, br: cBR, bl: cBL };
+                    }
+                }
+            }
+        }
+    }
+    if (!bestQuad) { return null; }
+
+    // 映射回原分辨率 + clamp
+    ['tl', 'tr', 'br', 'bl'].forEach(function (k) {
+        bestQuad[k].x = Math.max(0, Math.min(w, Math.round(bestQuad[k].x * DS)));
+        bestQuad[k].y = Math.max(0, Math.min(h, Math.round(bestQuad[k].y * DS)));
+    });
+    return bestQuad;
+}
+
 // 求输出尺寸：宽 = 上/下边长较大者，高 = 左/右边长较大者（透视下对边不等长，取大者不裁内容）
 function scanOutputSize(corners) {
     function dist(a, b) {
@@ -546,7 +727,8 @@ if (typeof module !== 'undefined' && module.exports) {
         scanBuildHomography: scanBuildHomography,
         scanPerspectiveCrop: scanPerspectiveCrop,
         scanEnhance: scanEnhance,
-        scanDetectBoundsV2: scanDetectBoundsV2
+        scanDetectBoundsV2: scanDetectBoundsV2,
+        scanDetectBoundsV3: scanDetectBoundsV3
     };
 }
 
@@ -679,11 +861,17 @@ function scanAutoDetect(auto) {
     }
     var imgData = scanCtx.getImageData(0, 0, scanW, scanH);
     var gray = scanToGray(imgData);
-    // V2（连通域+凸包+最大四边形）优先：能找倾斜文档的真实四角；
-    // V2 失败（无组件/组件过小/面积过小）降级 V1 行列投影（只找正置矩形）
-    var b = scanDetectBoundsV2(gray, scanW, scanH);
-    var usedV2 = !!b;
-    if (!b) { b = scanDetectBounds(gray, scanW, scanH); }
+    // 三级降级链：V3（Hough 直线，低对比度场景最优）→ V2（连通域+凸包，
+    // 高对比度倾斜文档）→ V1（行列投影，只找正置矩形）。V3 不依赖颜色
+    // 极性，浅色文档+浅色背景（V2 失败的主因）也能检出
+    var detectName = '';
+    var b = scanDetectBoundsV3(gray, scanW, scanH);
+    if (b) { detectName = '直线检测'; }
+    if (!b) {
+        b = scanDetectBoundsV2(gray, scanW, scanH);
+        if (b) { detectName = '区域轮廓'; }
+    }
+    if (!b) { b = scanDetectBounds(gray, scanW, scanH); detectName = '快速矩形'; }
     scanCorners = b;
     scanLayoutCorners();
     // 检测结果几乎铺满全图 → 视为未找到明显文档边界（纯色图也走此分支）
@@ -691,7 +879,7 @@ function scanAutoDetect(auto) {
     if (full) {
         showNotification('⚠️ 未检测到明显的文档边界，已铺满四角，请手动拖动角点框选');
     } else if (!auto) {
-        showNotification('✅ 已自动检测文档边界（' + (usedV2 ? '精确四角' : '快速矩形') + '），可拖动角点微调');
+        showNotification('✅ 已自动检测文档边界（' + detectName + '），可拖动角点微调');
     }
 }
 
