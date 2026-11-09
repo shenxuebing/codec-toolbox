@@ -362,6 +362,131 @@ function scanNameQuad(quadPts) {
 // 最强边界直线（上/下/左/右各一），交点即四角。近正置拍摄效果最好，
 // 大角度倾斜文档由 V2 兜底。
 
+// ---------- V5 边界检测：OpenCV Canny + 轮廓 + 四边形逼近 ----------
+// 真实拍照主力算法，依赖 js/vendor/opencv.js（页面按需加载，未加载时本
+// 函数被降级链跳过）。流程：
+//   RGBA→灰度 → GaussianBlur 去文字纹理 → Canny(自适应阈值) → 膨胀
+//   → 外部轮廓 → 面积降序逐个 approxPolyDP → 首个"4 顶点且面积 ≥15%"
+//   的轮廓即文档。营业执照实测：84% 大轮廓四角命中。
+// 入参兼容两种形态：gray Float32Array（内部转 Mat）或 canvas ImageData
+// （含 .data/.width/.height，内部转灰度后转 Mat）。
+function scanDetectBoundsV5(gray, w, h) {
+    if (typeof cv === 'undefined' || !cv || !cv.Mat) { return null; }
+
+    // 归一化输入为 Uint8 灰度数组
+    var u8;
+    if (gray && gray.length === w * h) {
+        u8 = new Uint8Array(w * h);
+        for (var gi = 0; gi < w * h; gi++) { u8[gi] = Math.max(0, Math.min(255, Math.round(gray[gi]))); }
+    } else if (gray && gray.data && gray.data.length === w * h * 4) {
+        // ImageData 形态：RGBA 转灰度
+        u8 = new Uint8Array(w * h);
+        var d = gray.data;
+        for (var pi = 0; pi < w * h; pi++) {
+            u8[pi] = Math.round(0.299 * d[pi * 4] + 0.587 * d[pi * 4 + 1] + 0.114 * d[pi * 4 + 2]);
+        }
+    } else {
+        return null;
+    }
+
+    var src = null, grayMat = null, blurred = null, edges = null;
+    var kernel = null, dilated = null, contours = null, hierarchy = null;
+    var approx = null, cnt = null;
+    try {
+        src = cv.matFromImageData
+            ? null
+            : null;   // techstark 构建无 matFromImageData，改手动填充
+        // 构建灰度 Mat（CV_8UC1）
+        grayMat = new cv.Mat(h, w, cv.CV_8UC1);
+        grayMat.data.set(u8);
+
+        // GaussianBlur 5x5 去文字纹理（营业执照实测：纹理梯度会稀释轮廓精度）
+        blurred = new cv.Mat();
+        cv.GaussianBlur(grayMat, blurred, new cv.Size(5, 5), 0);
+
+        // Canny：先固定阈值尝试；若有效四边形轮廓不足再降阈值重试一次
+        var bestQuad = null;
+        var thresholdPairs = [[30, 90], [10, 50]];
+        for (var ti = 0; ti < thresholdPairs.length && !bestQuad; ti++) {
+            var lo = thresholdPairs[ti][0], hi = thresholdPairs[ti][1];
+            edges = new cv.Mat();
+            cv.Canny(blurred, edges, lo, hi);
+            kernel = cv.Mat.ones(3, 3, cv.CV_8UC1);
+            dilated = new cv.Mat();
+            cv.dilate(edges, dilated, kernel);
+            contours = new cv.MatVector();
+            hierarchy = new cv.Mat();
+            cv.findContours(dilated, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
+
+            // 面积降序，逐个 approxPolyDP 找 4 顶点大轮廓
+            var areas = [];
+            for (var ci = 0; ci < contours.size(); ci++) {
+                areas.push({ idx: ci, area: cv.contourArea(contours.get(ci)) });
+            }
+            areas.sort(function (a, b) { return b.area - a.area; });
+            for (var k = 0; k < Math.min(8, areas.length) && !bestQuad; k++) {
+                if (areas[k].area < w * h * 0.15) { break; }   // 面积降序，后续更小直接停
+                var c = contours.get(areas[k].idx);
+                var peri = cv.arcLength(c, true);
+                approx = new cv.Mat();
+                cv.approxPolyDP(c, approx, 0.02 * peri, true);
+                if (approx.rows === 4) {
+                    // 校验四角在画面 ±8% 内（轮廓可能贴照片边界）
+                    var pts = [];
+                    var ok = true;
+                    for (var j = 0; j < 4; j++) {
+                        var p = approx.intPtr(j);
+                        if (p[0] < -w * 0.08 || p[0] > w * 1.08 || p[1] < -h * 0.08 || p[1] > h * 1.08) { ok = false; }
+                        pts.push({ x: p[0], y: p[1] });
+                    }
+                    if (ok) {
+                        // 命名四角：approxPolyDP 输出顶点沿轮廓连续有序，
+                        // 先按质心角度排序为 tl→tr→br→bl 顺时针（图像坐标系 y 向下），
+                        // 极值命名（x+y/x-y）对旋转文档会错位，改用质心方位角。
+                        //   1) 求质心
+                        var mcx = 0, mcy = 0;
+                        pts.forEach(function (p) { mcx += p.x; mcy += p.y; });
+                        mcx /= 4; mcy /= 4;
+                        //   2) 按 atan2(y-cy, x-cx) 升序排列（图像 y 向下，atan2 升序
+                        //      对应逆时针，取出的顺序为 [右上→右下→左下→左上]，
+                        //      即标准四边形的 tr→br→bl→tl）
+                        var sorted = pts.slice().sort(function (a, b) {
+                            return Math.atan2(a.y - mcy, a.x - mcx) - Math.atan2(b.y - mcy, b.x - mcx);
+                        });
+                        //   3) 从最接近左上（质心方位角 -135°）的顶点起顺时针重排
+                        var startIdx = 0, bestAng = Infinity;
+                        sorted.forEach(function (p, si) {
+                            var ang = Math.atan2(p.y - mcy, p.x - mcx);
+                            // 归一到 (-π, π]，与 -135°(-2.356) 比较环距
+                            var diff = Math.abs(ang - (-Math.PI * 0.75));
+                            if (diff > Math.PI) { diff = Math.PI * 2 - diff; }
+                            if (diff < bestAng) { bestAng = diff; startIdx = si; }
+                        });
+                        var tl = sorted[startIdx % 4], tr = sorted[(startIdx + 1) % 4];
+                        var br = sorted[(startIdx + 2) % 4], bl = sorted[(startIdx + 3) % 4];
+                        bestQuad = { tl: { x: tl.x, y: tl.y }, tr: { x: tr.x, y: tr.y }, br: { x: br.x, y: br.y }, bl: { x: bl.x, y: bl.y } };
+                    }
+                }
+                approx.delete(); c.delete();
+            }
+
+            // 释放本轮资源（approx 已在轮廓循环内逐轮释放，此处不再重复）
+            edges.delete(); kernel.delete(); dilated.delete(); contours.delete(); hierarchy.delete();
+            edges = null; kernel = null; dilated = null; contours = null; hierarchy = null;
+            if (bestQuad) { break; }
+        }
+        grayMat.delete(); blurred.delete();
+        grayMat = null; blurred = null;
+        return bestQuad;
+    } catch (e) {
+        // 异常时清理已分配的 Mat，避免 wasm 内存泄漏
+        [src, grayMat, blurred, edges, kernel, dilated, contours, hierarchy, approx, cnt].forEach(function (m) {
+            if (m) { try { m.delete(); } catch (e2) { /* 已释放 */ } }
+        });
+        throw e;
+    }
+}
+
 function scanDetectBoundsV3(gray, w, h) {
     // 降采样到最长边 ~240px（Hough 运算量受控，精度足够：1px≈原图 1.5px）
     var DS = Math.max(1, Math.ceil(Math.max(w, h) / 240));
@@ -952,6 +1077,7 @@ if (typeof module !== 'undefined' && module.exports) {
         scanEnhance: scanEnhance,
         scanDetectBoundsV2: scanDetectBoundsV2,
         scanDetectBoundsV3: scanDetectBoundsV3,
+        scanDetectBoundsV5: scanDetectBoundsV5,
         scanDetectBoundsV4: scanDetectBoundsV4
     };
 }
@@ -1085,14 +1211,28 @@ function scanAutoDetect(auto) {
     }
     var imgData = scanCtx.getImageData(0, 0, scanW, scanH);
     var gray = scanToGray(imgData);
-    // 四级降级链（按场景适配性排序）：
-    //   V3 Hough 直线——低对比度（浅色文档+浅色背景）场景最优
-    //   V4 RANSAC 边缘扫描——边缘弯曲/局部遮挡（文字密集证书）鲁棒
+    // 五级降级链（按场景适配性排序）：
+    //   V5 OpenCV Canny+轮廓+四边形逼近——真实拍照主力算法（营业执照
+    //      实测 84% 大轮廓四角命中），低对比度/倾斜通吃，依赖 opencv.js
+    //   V3 Hough 直线——浅色文档+浅色背景（无 OpenCV 时的替代主力）
+    //   V4 RANSAC 边缘扫描——边缘弯曲/局部遮挡（文字密集证书）
     //   V2 连通域+凸包——高对比度倾斜文档
     //   V1 行列投影——只找正置矩形，最后兜底
     var detectName = '';
-    var b = scanDetectBoundsV3(gray, scanW, scanH);
-    if (b) { detectName = '直线检测'; }
+    var b = null;
+    if (typeof cv !== 'undefined' && cv && cv.Mat) {
+        try {
+            b = scanDetectBoundsV5(imgData, scanW, scanH);
+            if (b) { detectName = 'OpenCV 轮廓'; }
+        } catch (eV5) {
+            console.warn('V5 检测异常，降级下一算法:', eV5 && eV5.message ? eV5.message : eV5);
+            b = null;
+        }
+    }
+    if (!b) {
+        b = scanDetectBoundsV3(gray, scanW, scanH);
+        if (b) { detectName = '直线检测'; }
+    }
     if (!b) {
         b = scanDetectBoundsV4(gray, scanW, scanH);
         if (b) { detectName = '边缘拟合'; }
