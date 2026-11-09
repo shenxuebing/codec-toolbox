@@ -423,26 +423,39 @@ function scanDetectBoundsV3(gray, w, h) {
         }
     }
 
-    // 峰值提取（3×3 邻域非极大抑制，票数 ≥ max 的 35% 且 ≥ 20）
-    var maxVotes = 0;
-    for (t = 0; t < acc.length; t++) { if (acc[t] > maxVotes) { maxVotes = acc[t]; } }
-    var peaks = [];
-    var peakThr = Math.max(20, maxVotes * 0.35);
-    for (t = 0; t < nTheta; t++) {
-        for (var r2 = 1; r2 < nRho - 1; r2++) {
-            var v = acc[t * nRho + r2];
-            if (v < peakThr) { continue; }
-            var isPeak = true;
-            for (var dt = -1; dt <= 1 && isPeak; dt++) {
-                for (var dr = -1; dr <= 1; dr++) {
-                    if (dt === 0 && dr === 0) { continue; }
-                    var tt = (t + dt + nTheta) % nTheta, rr = r2 + dr;
-                    if (rr >= 0 && rr < nRho && acc[tt * nRho + rr] > v) { isPeak = false; break; }
-                }
-            }
-            if (isPeak) { peaks.push({ t: t, rho: r2 - diag, votes: v }); }
+    // 峰值提取（3×3 邻域非极大抑制）——水平/垂直分组独立阈值：
+    // 左右边缘线在缩图上更短、对比度更低（实测 29/33 票 vs 上下 122/152 票），
+    // 统一 35% 阈值会把左右线全部过滤，必须按本组最大票数的 25% 分别取阈
+    function nmsGroup(thetaIsHoriz) {
+        var groupMax = 0;
+        for (var t2 = 0; t2 < nTheta; t2++) {
+            var isH = Math.abs(Math.sin(t2 * Math.PI / 180)) >= 0.5;
+            if (isH !== thetaIsHoriz) { continue; }
+            for (var r3 = 0; r3 < nRho; r3++) { if (acc[t2 * nRho + r3] > groupMax) { groupMax = acc[t2 * nRho + r3]; } }
         }
+        var gThr = Math.max(14, groupMax * 0.25);
+        var found = [];
+        for (var t = 0; t < nTheta; t++) {
+            var isH2 = Math.abs(Math.sin(t * Math.PI / 180)) >= 0.5;
+            if (isH2 !== thetaIsHoriz) { continue; }
+            for (var r2 = 0; r2 < nRho; r2++) {
+                var v = acc[t * nRho + r2];
+                if (v < gThr) { continue; }
+                var isPeak = true;
+                for (var dt = -1; dt <= 1 && isPeak; dt++) {
+                    for (var dr = -1; dr <= 1; dr++) {
+                        if (dt === 0 && dr === 0) { continue; }
+                        var tt = (t + dt + nTheta) % nTheta, rr = r2 + dr;
+                        if (rr >= 0 && rr < nRho && acc[tt * nRho + rr] > v) { isPeak = false; break; }
+                    }
+                }
+                if (isPeak) { found.push({ t: t, rho: r2 - diag, votes: v }); }
+            }
+        }
+        found.sort(function (a, b) { return b.votes - a.votes; });
+        return found;
     }
+    var peaks = nmsGroup(true).concat(nmsGroup(false));
     if (peaks.length < 4) { return null; }
     peaks.sort(function (a, b) { return b.votes - a.votes; });
 
@@ -534,6 +547,216 @@ function scanDetectBoundsV3(gray, w, h) {
         bestQuad[k].y = Math.max(0, Math.min(h, Math.round(bestQuad[k].y * DS)));
     });
     return bestQuad;
+}
+
+// ---------- V4 边界检测：边缘扫描 + RANSAC 直线拟合 ----------
+// V3（全局 Hough）在证书边缘弯曲/被印章局部遮挡时失败：单一直线无法覆盖
+// 整条边，票数被稀释。V4 改为"逐行/列扫描边缘点 + RANSAC 拟合"：
+//   ① 大核模糊抹掉文字纹理（保留边界色差线）
+//   ② Sobel 梯度
+//   ③ 每行在左侧 45% 区域取最强梯度点 → 左边缘轨迹（右/上/下同理）
+//   ④ 每条轨迹 RANSAC 直线拟合（内点占比达标才接受）
+//   ⑤ 四线交点 → 四角。弯曲边缘时 RANSAC 拟合主体段，交点仍接近真实角。
+
+// 两点式直线：用 {nx, ny, rho}（单位法线 + 原点距）表示，便于求交点
+function scanV4LineFromPts(pts) {
+    // 最小二乘拟合（x = a*y + b 或 y = a*x + b 按跨度自选），再转法线式
+    var n = pts.length;
+    var sx = 0, sy = 0, sxx = 0, syy = 0, sxy = 0;
+    for (var i = 0; i < n; i++) { sx += pts[i].x; sy += pts[i].y; sxx += pts[i].x * pts[i].x; syy += pts[i].y * pts[i].y; sxy += pts[i].x * pts[i].y; }
+    var dx = sxx - sx * sx / n, dy = syy - sy * sy / n;
+    var line = {};
+    if (Math.abs(dx) >= Math.abs(dy)) {
+        // y = a*x + b
+        var a = (sxy - sx * sy / n) / (dx || 1e-9);
+        var b = (sy - a * sx) / n;
+        line.a = a; line.b = b; line.vertical = false;
+        line.nx = a / Math.sqrt(a * a + 1); line.ny = -1 / Math.sqrt(a * a + 1);
+        line.rho = Math.abs(line.ny) * b / line.ny * -1; // 占位，交点计算用 a/b
+    } else {
+        var a2 = (sxy - sx * sy / n) / (dy || 1e-9);
+        var b2 = (sx - a2 * sy) / n;
+        line.a = a2; line.b = b2; line.vertical = true;
+        line.nx = -1 / Math.sqrt(a2 * a2 + 1); line.ny = a2 / Math.sqrt(a2 * a2 + 1);
+    }
+    line.getX = line.vertical ? function (y) { return line.a * y + line.b; } : null;
+    line.getY = line.vertical ? null : function (x) { return line.a * x + line.b; };
+    return line;
+}
+
+// 两直线交点（line getX/getY 形式）
+function scanV4Intersect(l1, l2) {
+    // l1: y = a1*x + b1（或 x = a*y + b）；统一转为 y=ax+b 与 x=cy+d 求交
+    function toXY(line) {
+        if (line.vertical) { return { getX: function (y) { return line.a * y + line.b; }, getY: function (x) { return (x - line.b) / (line.a || 1e-9); } }; }
+        return { getX: function (y) { return (y - line.b) / (line.a || 1e-9); }, getY: function (x) { return line.a * x + line.b; } };
+    }
+    var A = toXY(l1), B = toXY(l2);
+    // y = A.getY(x)，x = B.getX(y) → 迭代一次代入：x = B.getX(A.getY(x))
+    var x = (l1.vertical || l2.vertical) ? (l1.vertical ? B.a * l1.b + B.b : l1.b) : 0;
+    if (l1.vertical) { x = l1.a * ((l2.vertical ? 0 : (l2.b + l2.a * 0)) ) + l1.b; }
+    // 直接解方程避免分支错误：y1(x) = a1 x + b1（非垂直时）；x2(y) = a2 y + b2（垂直时）
+    // 情形1：l1 非垂直（y=a1x+b1），l2 垂直（x=a2y+b2）→ y = a1(a2y+b2)+b1 → y(1-a1a2)=a1b2+b1
+    if (!l1.vertical && l2.vertical) {
+        var y1 = (l1.a * l2.b + l1.b) / (1 - l1.a * l2.a);
+        return { x: l2.a * y1 + l2.b, y: y1 };
+    }
+    if (l1.vertical && !l2.vertical) {
+        var x2 = l2.getY ? l2.getY(0) : 0;
+        var xx = l2.a === undefined ? 0 : 0;
+        // l2 非垂直：y = a2 x + b2；x = l1.a * y + l1.b → y = a2(l1.a y + l1.b) + l2.b
+        var y2 = (l2.a * l1.b + l2.b) / (1 - l2.a * l1.a);
+        return { x: l1.a * y2 + l1.b, y: y2 };
+    }
+    if (l1.vertical && l2.vertical) {
+        return { x: l1.b, y: l2.b };   // 两条垂直线不相交（应不发生）
+    }
+    var xa = (l2.b - l1.b) / (l1.a - l2.a || 1e-9);
+    return { x: xa, y: l1.a * xa + l1.b };
+}
+
+// V4 主入口：gray → {tl,tr,br,bl} 四角（缩图坐标由调用方提供原分辨率灰度即可，
+// 内部自带降采样）；任一边拟合失败返回 null（调用方降级）
+function scanDetectBoundsV4(gray, w, h) {
+    // 1. 双重 box blur r=2 抹文字纹理（与实验一致）
+    function blur(src, r) {
+        var out = new Float32Array(src.length);
+        for (var y = 0; y < h; y++) for (var x = 0; x < w; x++) {
+            var sum = 0, cnt = 0;
+            for (var dy = -r; dy <= r; dy++) for (var dx = -r; dx <= r; dx++) {
+                var xx = x + dx, yy = y + dy;
+                if (xx >= 0 && xx < w && yy >= 0 && yy < h) { sum += src[yy * w + xx]; cnt++; }
+            }
+            out[y * w + x] = sum / cnt;
+        }
+        return out;
+    }
+    var sm = blur(blur(gray, 2), 2);
+
+    // 2. Sobel 梯度
+    var mag = new Float32Array(w * h);
+    for (var y = 1; y < h - 1; y++) {
+        for (var x = 1; x < w - 1; x++) {
+            var i = y * w + x;
+            var gx = (sm[i - w + 1] + 2 * sm[i + 1] + sm[i + w + 1]) - (sm[i - w - 1] + 2 * sm[i - 1] + sm[i + w - 1]);
+            var gy = (sm[i + w - 1] + 2 * sm[i + w] + sm[i + w + 1]) - (sm[i - w - 1] + 2 * sm[i - w] + sm[i - w + 1]);
+            mag[i] = Math.sqrt(gx * gx + gy * gy);
+        }
+    }
+
+    // 3. 四边轨迹点收集（边距 3%，轨迹区 42%；每 2px 采样一个点控制量级）
+    //    关键：文字纹理的梯度与边界相当甚至更强（实测内点率 1~5%），
+    //    仅取"每行最强点"不够——再用整行梯度 90 分位做强度门槛过滤：
+    //    边界色差线是持续性强边缘，行内 90 分位会高于纯文字行
+    var margin = { x: Math.round(w * 0.03), y: Math.round(h * 0.03) };
+    var leftPts = [], rightPts = [], topPts = [], botPts = [];
+    var rowQ90 = [];
+    for (y = margin.y; y < h - margin.y; y++) {
+        var rowVals = [];
+        for (x = margin.x; x < w - margin.x; x += 2) { rowVals.push(mag[y * w + x]); }
+        rowVals.sort(function (a, b) { return a - b; });
+        rowQ90.push(rowVals[Math.floor(rowVals.length * 0.9)] || 0);
+    }
+    var colQ90 = [];
+    for (x = margin.x; x < w - margin.x; x++) {
+        var colVals = [];
+        for (y = margin.y; y < h - margin.y; y += 2) { colVals.push(mag[y * w + x]); }
+        colVals.sort(function (a, b) { return a - b; });
+        colQ90.push(colVals[Math.floor(colVals.length * 0.9)] || 0);
+    }
+    for (y = margin.y; y < h - margin.y; y += 2) {
+        var lineThrL = Math.max(8, rowQ90[(y - margin.y)] * 0.8);
+        var lineThrR = lineThrL;
+        var bestL = -1, bestLv = 0, bestR = -1, bestRv = 0;
+        for (x = margin.x; x < Math.round(w * 0.48); x += 2) {
+            var v = mag[y * w + x];
+            if (v > bestLv) { bestLv = v; bestL = x; }
+        }
+        for (x = Math.round(w * 0.52); x < w - margin.x; x += 2) {
+            v = mag[y * w + x];
+            if (v > bestRv) { bestRv = v; bestR = x; }
+        }
+        if (bestL > 0 && bestLv > 8 && bestLv >= lineThrL) { leftPts.push({ x: bestL, y: y }); }
+        if (bestR > 0 && bestRv > 8 && bestRv >= lineThrR) { rightPts.push({ x: bestR, y: y }); }
+    }
+    for (x = margin.x; x < w - margin.x; x += 2) {
+        var colThr = Math.max(8, colQ90[(x - margin.x)] * 0.8);
+        var bestT = -1, bestTv = 0, bestB = -1, bestBv = 0;
+        for (y = margin.y; y < Math.round(h * 0.48); y += 2) {
+            v = mag[y * w + x];
+            if (v > bestTv) { bestTv = v; bestT = y; }
+        }
+        for (y = Math.round(h * 0.52); y < h - margin.y; y += 2) {
+            v = mag[y * w + x];
+            if (v > bestBv) { bestBv = v; bestB = y; }
+        }
+        if (bestT > 0 && bestTv > 8 && bestTv >= colThr) { topPts.push({ x: x, y: bestT }); }
+        if (bestB > 0 && bestBv > 8 && bestBv >= colThr) { botPts.push({ x: x, y: bestB }); }
+    }
+
+    // 4. 每条轨迹 RANSAC 直线拟合：以首末点连线为初始模型，取距离中位数 3× 内的点重拟合
+    function fitLine(pts) {
+        if (pts.length < 12) { return null; }
+        // 真 RANSAC：随机采两点建线模型（首末点初始化会被跨段杂点破坏——
+        // 实测轨迹里证书外边界与绿色内边框混在一起，首末点分属两条线），
+        // 迭代 30 次取内点最多的模型；内点按 x/y 排序后最小二乘精化
+        function lineNorm(p1, p2) {
+            var dx = p2.x - p1.x, dy = p2.y - p1.y;
+            var len = Math.sqrt(dx * dx + dy * dy) || 1;
+            return { nx: -dy / len, ny: dx / len, px: p1.x, py: p1.y };
+        }
+        var rndState = 987654321;
+        function rnd() { rndState = (rndState * 1103515245 + 12345) & 0x7fffffff; return rndState / 0x7fffffff; }
+        var bestInliers = null, bestCount = 0;
+        var total = pts.length;
+        for (var it = 0; it < 30; it++) {
+            var i1 = Math.floor(rnd() * total), i2 = Math.floor(rnd() * total);
+            if (i1 === i2) { continue; }
+            var L = lineNorm(pts[i1], pts[i2]);
+            var inliers = [];
+            for (var i = 0; i < total; i++) {
+                var d = Math.abs((pts[i].x - L.px) * L.nx + (pts[i].y - L.py) * L.ny);
+                if (d < 5) { inliers.push(pts[i]); }
+            }
+            if (inliers.length > bestCount) { bestCount = inliers.length; bestInliers = inliers; }
+        }
+        if (!bestInliers || bestCount < Math.max(12, total * 0.25)) { return null; }   // 主导线段不足 25% 视为失败
+        // 内点范围截断：内点沿轨迹可能有少量离群段（如证书下边左段是桌布阴影、
+        // 右段是证书边缘，两段高度不同），取内点投影坐标的 10%~90% 分位截断，
+        // 只保留主体段再做最终拟合，避免两段异构点互相拉偏截距
+        var proj = bestInliers.map(function (p) {
+            return (bestInliers === bestInliers) ? p.x * bestInliers.length + p.y : 0;   // 投影值仅用于排序
+        });
+        var sorted = bestInliers.slice().sort(function (a, b) {
+            return (a.x + a.y) - (b.x + b.y);   // 沿轨迹单调方向排序（x+y 与边方向单调）
+        });
+        var lo = Math.floor(sorted.length * 0.10), hi = Math.ceil(sorted.length * 0.90);
+        var trimmed = sorted.slice(lo, hi);
+        return scanV4LineFromPts(trimmed.length >= 8 ? trimmed : bestInliers);
+    }
+
+    var lLine = fitLine(leftPts), rLine = fitLine(rightPts);
+    var tLine = fitLine(topPts), bLine = fitLine(botPts);
+    if (!lLine || !rLine || !tLine || !bLine) { return null; }
+
+    // 5. 交点 → 四角
+    var TL = scanV4Intersect(tLine, lLine);
+    var TR = scanV4Intersect(tLine, rLine);
+    var BR = scanV4Intersect(bLine, rLine);
+    var BL = scanV4Intersect(bLine, lLine);
+    if (!TL || !TR || !BR || !BL) { return null; }
+    var quad = { tl: TL, tr: TR, br: BR, bl: BL };
+
+    // 6. 校验：面积占比 10%~99%、交点在画面 ±8% 内
+    var area = Math.abs(scanQuadArea(quad)) / (w * h);
+    if (area < 0.10 || area > 0.99) { return null; }
+    var keys = ['tl', 'tr', 'br', 'bl'];
+    for (var k = 0; k < 4; k++) {
+        var pt = quad[keys[k]];
+        if (pt.x < -w * 0.08 || pt.x > w * 1.08 || pt.y < -h * 0.08 || pt.y > h * 1.08) { return null; }
+        if (isNaN(pt.x) || isNaN(pt.y)) { return null; }
+    }
+    return quad;
 }
 
 // 求输出尺寸：宽 = 上/下边长较大者，高 = 左/右边长较大者（透视下对边不等长，取大者不裁内容）
@@ -728,7 +951,8 @@ if (typeof module !== 'undefined' && module.exports) {
         scanPerspectiveCrop: scanPerspectiveCrop,
         scanEnhance: scanEnhance,
         scanDetectBoundsV2: scanDetectBoundsV2,
-        scanDetectBoundsV3: scanDetectBoundsV3
+        scanDetectBoundsV3: scanDetectBoundsV3,
+        scanDetectBoundsV4: scanDetectBoundsV4
     };
 }
 
@@ -861,12 +1085,18 @@ function scanAutoDetect(auto) {
     }
     var imgData = scanCtx.getImageData(0, 0, scanW, scanH);
     var gray = scanToGray(imgData);
-    // 三级降级链：V3（Hough 直线，低对比度场景最优）→ V2（连通域+凸包，
-    // 高对比度倾斜文档）→ V1（行列投影，只找正置矩形）。V3 不依赖颜色
-    // 极性，浅色文档+浅色背景（V2 失败的主因）也能检出
+    // 四级降级链（按场景适配性排序）：
+    //   V3 Hough 直线——低对比度（浅色文档+浅色背景）场景最优
+    //   V4 RANSAC 边缘扫描——边缘弯曲/局部遮挡（文字密集证书）鲁棒
+    //   V2 连通域+凸包——高对比度倾斜文档
+    //   V1 行列投影——只找正置矩形，最后兜底
     var detectName = '';
     var b = scanDetectBoundsV3(gray, scanW, scanH);
     if (b) { detectName = '直线检测'; }
+    if (!b) {
+        b = scanDetectBoundsV4(gray, scanW, scanH);
+        if (b) { detectName = '边缘拟合'; }
+    }
     if (!b) {
         b = scanDetectBoundsV2(gray, scanW, scanH);
         if (b) { detectName = '区域轮廓'; }
