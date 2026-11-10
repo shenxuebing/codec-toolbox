@@ -15,27 +15,36 @@
 ├── index.html                      # 主入口（左侧菜单 + 11 个功能页面）
 ├── css/style.css                   # 全部样式
 ├── js/
-│   ├── vendor/                     # 第三方库（自旧单文件版提取）
+│   ├── vendor/                     # 第三方库（自旧单文件版提取或官方 dist 本地化）
 │   │   ├── crypto-js.js            # CryptoJS（MD5 等）
 │   │   ├── gbk.js                  # GBK 编解码库（23940 个 GBK 字符）
-│   │   └── sm3.js                  # SM3 国密哈希
-│   ├── app.js                      # 主逻辑（编码转换/哈希/文件工具/URL/Unicode/随机 + 页面切换）
+│   │   ├── sm3.js                  # SM3 国密哈希
 │   │   ├── qrcode-generator.min.js  # 二维码生成库
-│   │   ├── jsqr.min.js              # 二维码识别库
-│   │   └── sm-crypto.js             # 国密算法库（SM2/SM3/SM4，本地化打包含 jsbn）
+│   │   ├── jsqr.min.js             # 二维码识别库
+│   │   ├── sm-crypto.js            # 国密算法库（SM2/SM3/SM4，本地化打包含 jsbn）
+│   │   ├── cronstrue.min.js        # Cron 中文描述库
+│   │   ├── sql-formatter.min.js    # SQL 格式化库
+│   │   ├── pdfjs.min.js / pdfjs-worker.min.js  # PDF 渲染（pdf.js 3.11）
+│   │   ├── pdf-lib.min.js          # PDF 生成与页面操作
+│   │   ├── fflate.umd.js           # ZIP 打包
+│   │   └── opencv.js               # OpenCV.js 4.10（文档扫描 V5 检测）
+│   ├── app.js                      # 主逻辑（编码转换/哈希/文件工具/URL/Unicode/随机 + 页面切换）
 │   ├── timestamp.js                # 时间戳转换
 │   ├── jwt.js                      # JWT 解码/签发/验证
 │   ├── ascii.js                    # ASCII 码对照表
 │   ├── jsontool.js                 # JSON 工具
 │   ├── imgtool.js                  # 图片 ↔ Base64 互转
+│   ├── imgcompress.js              # 图片压缩/缩放（canvas）
+│   ├── scan.js                     # 文档扫描（V1~V5 五级检测降级链）
 │   ├── age.js                      # 年龄计算器
 │   ├── qrcode.js                   # 二维码生成/识别
 │   ├── asn1.js                     # ASN.1 查看器（DER 解析 + 国密 OID 映射）
 │   ├── cert.js                     # X.509 证书查看器（国密证书支持）
-│   ├── keytool.js                  # 密钥工具（PKCS#1↔#8/P12 查看/GM/T 0009 信封）
-│   ├── oidtool.js                  # OID 查询（国密/PKI OID 库 + Hex↔OID 互转）
+│   ├── keytool.js                  # 密钥工具（PKCS#1↔#8/P12 查看/GM/T 0009 信封/0016-0018 Blob）
+│   ├── oidtool.js                  # OID 查询（国密/PKI OID 库 130 条 + Hex↔OID 互转）
 │   ├── radix.js                    # 进制转换（BigInt 大整数，2-62 进制）
 │   ├── uuid.js                     # UUID v4/v7 生成器
+│   ├── passgen.js                  # 密码生成器（熵评估/排除易混淆字符）
 │   ├── regex.js                    # 正则测试器（匹配高亮/分组捕获/替换预览/常用速查）
 │   ├── diff.js                     # 文本 Diff 对比（LCS 逐行差异）
 │   ├── ipcalc.js                   # IP 子网计算器（IPv4 CIDR/掩码）
@@ -45,7 +54,6 @@
 │   ├── hmac.js                     # HMAC 计算（SHA-1/256/384/512）
 │   ├── htmlentity.js               # HTML 实体编解码
 │   ├── textkit.js                  # 文本批量处理（去重/排序/大小写/统计）
-│   ├── imgcompress.js              # 图片压缩/缩放（canvas）
 │   ├── sql.js                      # SQL 格式化（sql-formatter 本地化）
 │   ├── gmsm.js                     # 国密 SM2/SM4 + EnDataUtil 格式兼容
 │   └── github.js                   # GitHub 热榜（唯一联网功能）
@@ -180,7 +188,8 @@
 - 处理前后字符/行数对比统计，UTF-8 字节数统计，结果可下载
 
 ### 📄 文档扫描
-- 仿手机文档扫描：上传照片 → 自动检测文档四角（连通域 + 凸包 + 最大面积四边形，**支持倾斜文档**；行列投影法兜底）→ 四角可拖拽微调 → 透视矫正（单应变换逆映射 + 双线性插值）
+- 五级检测降级链：**V5 OpenCV（Canny+轮廓+四边形逼近，主力算法，营业执照实测 84% 大轮廓四角命中）** → V3 Hough 直线（低对比度）→ V4 RANSAC 边缘拟合（文字密集/边缘弯曲）→ V2 连通域+凸包（高对比度倾斜）→ V1 行列投影（兜底），通知栏标注当前方式
+- 透视矫正（单应变换逆映射 + 双线性插值）+ 四角可拖拽微调
 - 扫描增强：自动增强（直方图拉伸，白底拉白文字压黑、保留色彩）与黑白文档二值化两种模式
 - 输出 JPEG/PNG 下载；大图自动降采样处理保证性能
 
